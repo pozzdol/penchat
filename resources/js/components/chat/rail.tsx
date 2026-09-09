@@ -1,6 +1,7 @@
 import { APP_NAME, BrandMark } from '@/components/chat/brand';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
+import { router } from '@inertiajs/react';
 import { Camera, LogOut, MessagesSquare, Phone, SlidersHorizontal } from 'lucide-react';
 import type { ComponentType } from 'react';
 
@@ -65,6 +66,7 @@ export function Rail({ active = 'chats' }: { active?: string }) {
             <Tooltip>
                 <TooltipTrigger
                     type="button"
+                    onClick={() => router.post('/logout')}
                     className={cn(
                         'mt-auto grid size-11 place-items-center rounded-lg text-rail-ink',
                         'transition-colors duration-(--dur-micro) ease-out',

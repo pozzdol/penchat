@@ -60,3 +60,12 @@ export interface ChatPageProps {
     messages: Message[];
     [key: string]: unknown;
 }
+
+export type LoginStep = 'email' | 'code' | 'name';
+
+export interface LoginPageProps {
+    step: LoginStep;
+    /** The address a code was sent to, or the verified address awaiting a name. */
+    email: string | null;
+    [key: string]: unknown;
+}
