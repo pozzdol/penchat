@@ -1,0 +1,276 @@
+/* Hallmark · genre: modern-minimal · macrostructure: Workbench
+ * theme: custom · vibe: "ink on paper, one soft light, signal only where it counts"
+ * paper: oklch(96% 0.003 258) · accent: ink (no brand hue) · marks: ok/info/warn/bad
+ * display: Geist Variable · body: Geist Variable · axes: light / geometric-sans / neutral
+ * nav: n/a (application shell) · footer: n/a (application shell)
+ * studied: no · context: user-provided · pre-emit critique: P5 H5 E4 S5 R5 V4
+ *
+ * Departures from the supplied reference, and why — the long version lives in
+ * tokens.css; the short one:
+ *   · rows are flat, not floating cards, so that "selected" has somewhere to go
+ *   · the rail is ink, not brand-green, so green can mean presence and only that
+ *   · unread is an ink pill, not a green one, for the same reason
+ *
+ * Tuned for long sessions: body text runs at 10.3:1, not 15+, and the filled
+ * slabs are split onto --fill so they never sit at text-grade contrast.
+ *
+ * Every colour pair is measured; the table is at the top of tokens.css.
+ */
+
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import "@fontsource-variable/geist";
+@import "../../tokens.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@source '../../vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php';
+@source '../../storage/framework/views/*.php';
+
+/* No toggle UI ships with this build, so the system preference is the only
+   input. The `.light` escape hatch means a toggle can be added later without
+   touching the palette — set a class on <html> and this rule yields. */
+@media (prefers-color-scheme: dark) {
+    :root:not(.light) {
+        --page: oklch(0.235 0.008 258);
+        --surface: oklch(0.275 0.009 258);
+        --surface-2: oklch(0.3 0.01 258);
+        --line: oklch(0.372 0.011 258);
+        --control: oklch(0.56 0.013 258);
+
+        --ink: oklch(0.845 0.008 258);
+        --ink-soft: oklch(0.742 0.012 258);
+        --ink-mute: oklch(0.672 0.014 258);
+        --ink-ink: oklch(0.235 0.008 258);
+
+        --fill: oklch(0.435 0.02 258);
+        --fill-ink: oklch(0.958 0.004 258);
+        --fill-ink-soft: oklch(0.86 0.01 258);
+
+        --ok: oklch(0.66 0.11 152);
+        --info: oklch(0.672 0.105 254);
+        --warn: oklch(0.678 0.105 75);
+        --bad: oklch(0.69 0.14 25);
+
+        --shadow-tint: 258 30% 4%;
+        --scroll-thumb: oklch(0.385 0.012 258);
+        --scroll-thumb-hover: oklch(0.475 0.014 258);
+    }
+}
+
+/* shadcn's semantic layer, wired to the palette above so the primitives inherit
+   the system instead of carrying a second one. `--primary` is the slab tone,
+   not ink: a filled button is a surface, and surfaces are held below text
+   contrast throughout this palette. */
+:root,
+.dark {
+    --background: var(--page);
+    --foreground: var(--ink);
+    --card: var(--surface);
+    --card-foreground: var(--ink);
+    --popover: var(--surface);
+    --popover-foreground: var(--ink);
+    --primary: var(--fill);
+    --primary-foreground: var(--fill-ink);
+    --secondary: var(--surface-2);
+    --secondary-foreground: var(--ink);
+    --muted: var(--surface-2);
+    --muted-foreground: var(--ink-mute);
+    --accent: var(--surface-2);
+    --accent-foreground: var(--ink);
+    --destructive: var(--bad);
+    --border: var(--line);
+    --input: var(--control);
+    --ring: var(--info);
+}
+
+@theme inline {
+    --font-sans:
+        "Geist Variable", ui-sans-serif, system-ui, sans-serif,
+        "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol",
+        "Noto Color Emoji";
+    --font-heading: var(--font-sans);
+
+    --color-page: var(--page);
+    --color-surface: var(--surface);
+    --color-surface-2: var(--surface-2);
+    --color-line: var(--line);
+    --color-control: var(--control);
+    --color-ink: var(--ink);
+    --color-ink-soft: var(--ink-soft);
+    --color-ink-mute: var(--ink-mute);
+    --color-ink-ink: var(--ink-ink);
+    --color-fill: var(--fill);
+    --color-fill-ink: var(--fill-ink);
+    --color-fill-ink-soft: var(--fill-ink-soft);
+    --color-rail: var(--rail);
+    --color-rail-ink: var(--rail-ink);
+    --color-rail-ink-on: var(--rail-ink-on);
+    --color-rail-bad: var(--rail-bad);
+    --color-ok: var(--ok);
+    --color-info: var(--info);
+    --color-warn: var(--warn);
+    --color-bad: var(--bad);
+
+    --color-background: var(--background);
+    --color-foreground: var(--foreground);
+    --color-card: var(--card);
+    --color-card-foreground: var(--card-foreground);
+    --color-popover: var(--popover);
+    --color-popover-foreground: var(--popover-foreground);
+    --color-primary: var(--primary);
+    --color-primary-foreground: var(--primary-foreground);
+    --color-secondary: var(--secondary);
+    --color-secondary-foreground: var(--secondary-foreground);
+    --color-muted: var(--muted);
+    --color-muted-foreground: var(--muted-foreground);
+    --color-accent: var(--accent);
+    --color-accent-foreground: var(--accent-foreground);
+    --color-destructive: var(--destructive);
+    --color-border: var(--border);
+    --color-input: var(--input);
+    --color-ring: var(--ring);
+
+    --shadow-soft-sm:
+        0 1px 2px hsl(var(--shadow-tint) / 0.05),
+        0 1px 3px hsl(var(--shadow-tint) / 0.04);
+    --shadow-soft-md:
+        0 1px 2px hsl(var(--shadow-tint) / 0.04),
+        0 4px 12px hsl(var(--shadow-tint) / 0.06);
+    --shadow-soft-lg:
+        0 2px 4px hsl(var(--shadow-tint) / 0.04),
+        0 12px 32px hsl(var(--shadow-tint) / 0.08);
+
+    --radius-sm: calc(var(--radius) * 0.5);
+    --radius-md: calc(var(--radius) * 0.75);
+    --radius-lg: var(--radius);
+    --radius-xl: calc(var(--radius) * 1.35);
+    --radius-2xl: calc(var(--radius) * 1.7);
+
+    --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+    --ease-in: cubic-bezier(0.7, 0, 0.84, 0);
+    --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+}
+
+/* The three typing dots. One primitive, one job: say the other side is
+   composing without pulling the eye off the last message. */
+@keyframes typing-dot {
+    0%,
+    72%,
+    100% {
+        opacity: 0.28;
+        transform: translateY(0);
+    }
+    36% {
+        opacity: 1;
+        transform: translateY(-2px);
+    }
+}
+
+@utility typing-dot {
+    animation: typing-dot 1.25s var(--ease-in-out) infinite;
+}
+
+@layer base {
+    * {
+        @apply border-border;
+    }
+
+    html {
+        @apply font-sans;
+        /* The shell owns its own scrolling; the document itself never scrolls. */
+        overflow: clip;
+    }
+
+    body {
+        @apply bg-background text-foreground;
+        overflow: clip;
+    }
+
+    /* Every timestamp, unread count and read-receipt sits in a column with its
+       neighbours. Proportional figures make those columns ragged. */
+    time,
+    [data-tabular] {
+        font-variant-numeric: tabular-nums;
+    }
+
+    /* Long unbroken strings — a pasted URL, a German compound — must break
+       rather than push a fixed-width panel wide. */
+    h1,
+    h2,
+    h3 {
+        overflow-wrap: anywhere;
+        min-width: 0;
+    }
+
+    /* Scrollbars: thin, no track, no stepper arrows. The two mechanisms cannot
+       be combined — in Blink, setting `scrollbar-width` makes the element
+       ignore ::-webkit-scrollbar entirely, and `thin` alone does not drop the
+       arrows. So the engines are split. */
+    @supports selector(::-webkit-scrollbar) {
+        ::-webkit-scrollbar {
+            width: 10px;
+            height: 10px;
+            background: transparent;
+        }
+
+        ::-webkit-scrollbar-track,
+        ::-webkit-scrollbar-corner {
+            background: transparent;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: var(--scroll-thumb);
+            border: 3px solid transparent;
+            background-clip: content-box;
+            border-radius: 999px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--scroll-thumb-hover);
+            border: 3px solid transparent;
+            background-clip: content-box;
+        }
+
+        ::-webkit-scrollbar-button {
+            display: none;
+        }
+    }
+
+    @supports not selector(::-webkit-scrollbar) {
+        * {
+            scrollbar-width: thin;
+            scrollbar-color: var(--scroll-thumb) transparent;
+        }
+    }
+
+    /* Focus appears instantly — never transitioned, or a keyboard user has no
+       indicator for the length of the transition. shadcn primitives ship their
+       own ring, so the fallback yields to them rather than doubling up. */
+    :focus-visible {
+        outline: 2px solid var(--info);
+        outline-offset: 2px;
+    }
+
+    [data-slot]:focus-visible {
+        outline: none;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+            animation-duration: 0.01ms !important;
+            animation-iteration-count: 1 !important;
+            transition-duration: 0.01ms !important;
+        }
+
+        /* Functional loops still need to read as "in progress", so the typing
+           indicator keeps its shape and drops only the movement. */
+        .typing-dot {
+            animation: none !important;
+            opacity: 0.6;
+        }
+    }
+}

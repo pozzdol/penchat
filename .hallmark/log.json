@@ -1,0 +1,14 @@
+[
+  {
+    "date": "2026-09-09",
+    "genre": "modern-minimal",
+    "macrostructure": "Workbench",
+    "theme": "custom",
+    "theme_axes": "light / geometric-sans / neutral",
+    "vibe": "ink on paper, one soft light, signal only where it counts",
+    "nav": "n/a (application shell)",
+    "footer": "n/a (application shell)",
+    "enrichment": "none (typography only)",
+    "brief": "Chatroom · three-pane realtime chat shell; monochrome ink/paper with four functional status marks"
+  }
+]

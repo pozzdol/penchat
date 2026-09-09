@@ -1,0 +1,166 @@
+/* Chatroom · design tokens
+ * genre modern-minimal · macrostructure Workbench · theme custom (monochrome)
+ * vibe: "ink on paper, one soft light, signal only where it counts"
+ *
+ * A chat client is read for hours, not admired for seconds. This palette is
+ * tuned for the long session: the range is deliberately compressed at both
+ * ends, and nothing on screen runs at maximum contrast.
+ *
+ * The palette is ink and paper at hue 258 — a trace of cool so the greys are
+ * not flat — and the only chromatic marks are the four that must carry meaning
+ * before the words are read.
+ *
+ * Each accent does exactly ONE job. Doubling one up is what makes a status
+ * palette stop working: if green is both "online" and "unread", the eye can no
+ * longer separate a presence dot from a count.
+ *
+ *   --ok    green   presence (online dot) · delivered + read receipt
+ *   --info  blue    @mention · links · the focus ring
+ *   --warn  amber   sending · reconnecting
+ *   --bad   red     send failed · destructive confirm
+ *
+ * ---------------------------------------------------------------------------
+ * Why --fill exists, and why it is not --ink
+ *
+ * `--ink` used to do two jobs: body text AND the filled slab behind a selected
+ * row or an own-message bubble. Those jobs have different contrast needs. Text
+ * wants ~10:1. A fill only needs to be *identifiable* — 2:1 against its field
+ * is plenty, because position, alignment and border already say what it is.
+ *
+ * Fusing them forced every slab to text-grade extremity, so dark mode rendered
+ * a column of near-white blocks on a near-black field at 16.5:1. That is a
+ * flashlight, and a chat thread is mostly slabs. Splitting the token is what
+ * actually fixes the fatigue; softening the numbers alone would not have.
+ *
+ * --fill is one slate that does NOT invert with the theme, for the same reason
+ * the rail does not: it reads by weight rather than by hue, so "mine" and
+ * "selected" look like the same object in both modes. Dark mode gets a much
+ * smaller step than light mode gets, on purpose — a bright area on a dark field
+ * is perceptually far louder than a dark area on a light one.
+ * ---------------------------------------------------------------------------
+ *
+ * Light, measured (WCAG 2.1, sRGB) — page / surface / surface-2:
+ *   ink ............. 10.26 · 10.94 · 9.44      ink-soft ... 6.91 · 7.37 · 6.36
+ *   ink-mute ......... 5.07 ·  5.41 · 4.66      ok ......... 5.09 · 5.42 · 4.68
+ *   info ............. 5.11 ·  5.44 · 4.69      warn ....... 5.10 · 5.44 · 4.69
+ *   bad .............. 5.12 ·  5.46 · 4.70
+ *   control / surface ... 3.29     control / page ......... 3.09
+ *   fill / page ......... 7.21     text on fill ........... 7.47
+ *   fill-ink-soft / fill ................................... 5.30
+ *
+ * Dark, measured — every pair clears AA body:
+ *   ink ............. 10.38 ·  9.23 · 8.48      ink-soft ... 7.28 · 6.48 · 5.96
+ *   ink-mute ......... 5.61 ·  4.99 · 4.59      ok ......... 5.62 · 5.00 · 4.60
+ *   info ............. 5.62 ·  5.00 · 4.60      warn ....... 5.66 · 5.03 · 4.63
+ *   bad .............. 5.65 ·  5.02 · 4.62
+ *   control / surface ... 3.19     control / page ......... 3.58
+ *   fill / page ......... 2.10     text on fill ........... 7.02
+ *   fill-ink-soft / fill ................................... 5.18
+ *
+ * Body text sits at 10.3:1 in both themes — comfortably past AAA (7:1) and well
+ * short of the ~12:1 mark where a large field stops reading as legible and
+ * starts reading as glare. Previously it was 15.4 / 16.5.
+ *
+ * Two line weights, because they do different jobs. `--line` is a divider
+ * between stacked rows and is deliberately below 3:1 — it separates, it does
+ * not enclose. `--control` is the border of an input or a button, which is a
+ * component boundary and must clear 3:1 in both themes.
+ *
+ * Non-text marks (icons) are held to 3:1: rail icons read 5.18:1 at rest and
+ * 4.06:1 on the destructive hover.
+ *
+ * The rail is the same slate in both themes: it is chrome rather than content,
+ * and with no brand hue the only thing left to say "this is not the page" is
+ * weight. Against a dark page that leaves only 1.45:1, so the rail also carries
+ * a hairline — the tone alone will not hold the edge there.
+ */
+
+:root {
+    /* Ground. Paper, not white: the page is pulled a step off maximum so it
+       stops throwing raw luminance at a reader who is here all afternoon. */
+    --page: oklch(0.96 0.003 258);
+    --surface: oklch(0.982 0.002 258);
+    --surface-2: oklch(0.932 0.004 258);
+    --line: oklch(0.878 0.006 258);
+    --control: oklch(0.632 0.012 258);
+
+    --ink: oklch(0.345 0.012 258);
+    --ink-soft: oklch(0.44 0.014 258);
+    --ink-mute: oklch(0.512 0.014 258);
+    --ink-ink: oklch(0.972 0.003 258); /* label on a small filled ink mark */
+
+    /* The slab: selected row, own message. See the note above. */
+    --fill: oklch(0.43 0.016 258);
+    --fill-ink: oklch(0.972 0.003 258);
+
+    /* Secondary text on the slab. Solid, not an alpha of --fill-ink: Tailwind
+       compiles `/80` to color-mix(..., transparent), and mixing toward a
+       transparent *black* in oklab darkens the colour instead of fading it —
+       measured 2.4:1 where the arithmetic predicted 5.1:1. Every tone in this
+       palette is opaque for that reason. */
+    --fill-ink-soft: oklch(0.86 0.01 258);
+
+    /* Chrome. Fixed across themes. */
+    --rail: oklch(0.345 0.014 258);
+    --rail-ink: oklch(0.75 0.012 258);
+    --rail-ink-on: oklch(0.965 0.003 258);
+    /* The rail does not flip with the theme, so a mark on it must not either.
+       Using --bad here dropped the sign-out icon to 2.01:1 on hover in light
+       mode — less visible than at rest, which is a hover that hides the thing
+       it is highlighting. Fixed at 4.06:1 against the rail in both modes. */
+    --rail-bad: oklch(0.7 0.14 25);
+
+    /* The four marks. Narrow by design, and held to the same restraint as the
+       rest — chroma is low enough that they read as marks, not as alarms. */
+    --ok: oklch(0.5 0.105 150);
+    --info: oklch(0.512 0.13 255);
+    --warn: oklch(0.516 0.1 70);
+    --bad: oklch(0.528 0.15 25);
+
+    /* One light source, from above. Two layers per step: a tight contact
+       shadow and a wider ambient one. */
+    --shadow-tint: 258 12% 40%;
+    --scroll-thumb: oklch(0.855 0.006 258);
+    --scroll-thumb-hover: oklch(0.765 0.01 258);
+
+    --radius: 0.75rem;
+
+    --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+    --ease-in: cubic-bezier(0.7, 0, 0.84, 0);
+    --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+    --dur-micro: 120ms;
+    --dur-short: 220ms;
+    --dur-long: 420ms;
+}
+
+.dark {
+    /* Charcoal, not black. A near-black ground under light text produces
+       halation — the type appears to bleed at the edges — and that is the
+       specific thing that burns eyes out in a dark-mode reading app. Lifting
+       the page closes the gap from both directions at once. */
+    --page: oklch(0.235 0.008 258);
+    --surface: oklch(0.275 0.009 258);
+    --surface-2: oklch(0.3 0.01 258);
+    --line: oklch(0.372 0.011 258);
+    --control: oklch(0.56 0.013 258);
+
+    --ink: oklch(0.845 0.008 258);
+    --ink-soft: oklch(0.742 0.012 258);
+    --ink-mute: oklch(0.672 0.014 258);
+    --ink-ink: oklch(0.235 0.008 258);
+
+    --fill: oklch(0.435 0.02 258);
+    --fill-ink: oklch(0.958 0.004 258);
+    --fill-ink-soft: oklch(0.86 0.01 258);
+
+    /* A coloured mark on dark has to be lighter than its ground, not darker —
+       but only just. These sit at ~5:1, not the 8-9:1 they were at. */
+    --ok: oklch(0.66 0.11 152);
+    --info: oklch(0.672 0.105 254);
+    --warn: oklch(0.678 0.105 75);
+    --bad: oklch(0.69 0.14 25);
+
+    --shadow-tint: 258 30% 4%;
+    --scroll-thumb: oklch(0.385 0.012 258);
+    --scroll-thumb-hover: oklch(0.475 0.014 258);
+}
