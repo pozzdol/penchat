@@ -375,6 +375,31 @@ a row per message per reader.
 
 ---
 
+## Mail
+
+Sign-in codes go out through **Resend**. The transport ships with Laravel; the
+only dependency is `resend/resend-php`, which supplies the `Resend` class that
+`MailManager::createResendTransport()` looks for. Do not add
+`resend/resend-laravel` — it registers the same transport again and the rest of
+it is audiences and contacts this app has no use for.
+
+Two things must be true or nothing arrives, and neither fails loudly on its
+own: `RESEND_API_KEY` is set, and the domain in `MAIL_FROM_ADDRESS` is verified
+in Resend with its DNS records added. An unverified domain is rejected. The
+shared `onboarding@resend.dev` sender needs no DNS but can only send to the
+address that owns the Resend account, which makes it a test tool, not a
+fallback.
+
+Sending is **synchronous, inside the sign-in request**. That is the choice:
+`QUEUE_CONNECTION` is `database` and no worker runs outside `composer run dev`,
+so a queued code would silently never leave. `LoginCode::send()` already
+catches everything, burns the code, logs the detail server-side, and shows
+"We could not send the code right now" under the field — a Resend outage is a
+visible refusal rather than a code that never comes.
+
+`phpunit.xml` pins `MAIL_MAILER=array`, so tests never reach the network. Keep
+it that way.
+
 ## Deployment and environment
 
 Reverb needs two distinct sets of env values - server-side (`REVERB_*`) and
