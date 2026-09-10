@@ -15,6 +15,16 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        // Cloudflare Tunnel terminates TLS and cloudflared reaches nginx over
+        // plain HTTP from loopback, so without this the framework reads the
+        // request as insecure: redirects come back as http:// and the session
+        // cookie loses its Secure flag. Only loopback can reach nginx, so
+        // trusting it is exact rather than a wildcard.
+        $middleware->trustProxies(at: [
+            '127.0.0.1',
+            '::1',
+        ]);
+
         $middleware->web(append: [
             HandleInertiaRequests::class,
         ]);
