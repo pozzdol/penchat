@@ -20,11 +20,16 @@ class LoginCodeMail extends Mailable
         return new Envelope(subject: "{$this->code} is your PenChat code");
     }
 
+    /**
+     * A text part as well as the HTML one. Some people read mail as text, and
+     * a message with no text alternative scores worse with spam filters — for
+     * an email whose whole job is to arrive, that is not a detail.
+     */
     public function content(): Content
     {
         return new Content(
-            htmlString: "<p>Your PenChat sign-in code is <strong>{$this->code}</strong>. It expires in 10 minutes.</p>"
-                .'<p>If you did not ask for it, you can ignore this email.</p>',
+            view: 'mail.login-code',
+            text: 'mail.login-code-text',
         );
     }
 }
