@@ -2,13 +2,16 @@
 
 namespace App\Models;
 
+use App\Enums\ConversationRole;
 use App\Enums\ConversationType;
 use App\Policies\ConversationPolicy;
 use Database\Factories\ConversationFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\UsePolicy;
+use Illuminate\Database\Eloquent\Concerns\HasUlids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
@@ -19,24 +22,26 @@ use InvalidArgumentException;
  * A direct chat is a group with two participants. Only presentation differs.
  */
 #[UsePolicy(ConversationPolicy::class)]
-#[Fillable(['type', 'name', 'direct_key', 'created_by'])]
+#[Fillable(['type', 'name', 'direct_key', 'owner_id', 'admins_can_promote', 'members_can_add'])]
 class Conversation extends Model
 {
     /** @use HasFactory<ConversationFactory> */
-    use HasFactory;
+    use HasFactory, HasUlids;
 
     /** @return array<string, string> */
     protected function casts(): array
     {
         return [
             'type' => ConversationType::class,
+            'admins_can_promote' => 'boolean',
+            'members_can_add' => 'boolean',
         ];
     }
 
     public function participants(): BelongsToMany
     {
         return $this->belongsToMany(User::class)
-            ->withPivot('last_read_message_id', 'joined_at');
+            ->withPivot('role', 'last_read_message_id', 'cleared_up_to_message_id', 'joined_at');
     }
 
     public function messages(): HasMany
@@ -49,23 +54,177 @@ class Conversation extends Model
         return $this->hasOne(Message::class)->latestOfMany();
     }
 
+    /** Null on a direct chat: two equals, nobody in charge. */
+    public function owner(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'owner_id');
+    }
+
+    public function isGroup(): bool
+    {
+        return $this->type === ConversationType::Group;
+    }
+
+    public function isOwner(User $user): bool
+    {
+        return $this->owner_id !== null
+            && $this->owner_id === $user->id
+            && $this->roleOf($user) !== null;
+    }
+
+    /**
+     * Requires the pivot to be loaded for this user — either through
+     * `participants` or the `conversations` relation on User.
+     */
+    public function roleOf(User $user): ?ConversationRole
+    {
+        $pivot = $this->relationLoaded('participants')
+            ? $this->participants->firstWhere('id', $user->id)?->pivot
+            : $this->participants()->whereKey($user->id)->first()?->pivot;
+
+        return $pivot ? ConversationRole::from($pivot->role) : null;
+    }
+
+    /**
+     * Membership is checked first on purpose: without it an owner_id pointing
+     * at someone with no pivot row — removed, left, or never attached — would
+     * clear every admin gate in the policy.
+     */
+    public function isAdmin(User $user): bool
+    {
+        $role = $this->roleOf($user);
+
+        if ($role === null) {
+            return false;
+        }
+
+        return $role === ConversationRole::Admin || $this->owner_id === $user->id;
+    }
+
     /**
      * Lowest read pointer among everyone except the viewer — a viewer's own
      * message is "read" once its id is at or below this. Requires loaded
-     * participants; 0 when the viewer is alone.
+     * participants.
+     *
+     * Returns '' for "nobody has read anything", which is what 0 meant while
+     * the keys were integers: the empty string sorts below every ULID.
      */
-    public function readPointerFor(User $viewer): int
+    public function readPointerFor(User $viewer): string
     {
         $others = $this->participants->reject(fn (User $u) => $u->is($viewer));
 
-        return $others->isEmpty()
-            ? 0
-            : (int) $others->min(fn (User $u) => $u->pivot->last_read_message_id ?? 0);
+        if ($others->isEmpty()) {
+            return '';
+        }
+
+        return $others
+            ->map(fn (User $u) => (string) ($u->pivot->last_read_message_id ?? ''))
+            ->sort(fn (string $a, string $b) => strcmp($a, $b))
+            ->first();
     }
 
+    /**
+     * Everyone who joins starts from the present. Both pointers are set to the
+     * newest message so a new member does not open the group to a wall of
+     * history marked unread, and someone re-added after leaving gets a clean
+     * slate rather than the backlog they walked away from.
+     *
+     * @param  list<User>  $users
+     */
+    public function attachParticipants(array $users, ConversationRole $role = ConversationRole::Member): void
+    {
+        if ($users === []) {
+            return;
+        }
+
+        $from = $this->messages()->max('id');
+
+        $this->participants()->syncWithoutDetaching(
+            collect($users)->mapWithKeys(fn (User $u) => [$u->id => [
+                'role' => $role->value,
+                'joined_at' => now(),
+                'last_read_message_id' => $from,
+                'cleared_up_to_message_id' => $from,
+            ]])->all(),
+        );
+
+        $this->unsetRelation('participants');
+    }
+
+    /**
+     * The one place a group is born, so `owner_id` and the owner's admin pivot
+     * row can never disagree.
+     *
+     * @param  list<User>  $members
+     */
+    public static function createGroup(string $name, User $owner, array $members = []): self
+    {
+        return DB::transaction(function () use ($name, $owner, $members) {
+            $conversation = static::create([
+                'type' => ConversationType::Group,
+                'name' => $name,
+                'owner_id' => $owner->id,
+            ]);
+
+            $conversation->attachParticipants([$owner], ConversationRole::Admin);
+            $conversation->attachParticipants(
+                collect($members)->reject(fn (User $u) => $u->is($owner))->values()->all(),
+            );
+
+            return $conversation;
+        });
+    }
+
+    /**
+     * Remove a participant, and hand the group on if that participant owned it.
+     *
+     * Succession goes to the longest-standing admin and, failing that, promotes
+     * the longest-standing member. `joined_at` is second-precision and a group
+     * created in one request gives everyone the same value, so ties are the
+     * common case rather than an exotic one — `user_id` is what actually
+     * decides most of the time, and it makes the outcome reproducible.
+     */
+    public function removeParticipant(User $user): void
+    {
+        DB::transaction(function () use ($user) {
+            $wasOwner = $this->owner_id === $user->id;
+
+            $this->participants()->detach($user->id);
+            $this->unsetRelation('participants');
+
+            if (! $wasOwner) {
+                return;
+            }
+
+            $heir = $this->participants()
+                ->orderByRaw('case when conversation_user.role = ? then 0 else 1 end', [ConversationRole::Admin->value])
+                ->orderBy('conversation_user.joined_at')
+                ->orderBy('users.id')
+                ->first();
+
+            if (! $heir) {
+                // Nobody left to inherit it. Messages cascade.
+                $this->delete();
+
+                return;
+            }
+
+            $this->participants()->updateExistingPivot($heir->id, ['role' => ConversationRole::Admin->value]);
+            $this->forceFill(['owner_id' => $heir->id])->save();
+            $this->unsetRelation('participants');
+        });
+    }
+
+    /**
+     * Ordered so both sides derive the same key. strcmp rather than min/max:
+     * PHP compares two numeric-looking strings numerically, and a ULID that
+     * happened to be all digits would order wrongly.
+     */
     public static function directKeyFor(User $a, User $b): string
     {
-        return min($a->id, $b->id).'-'.max($a->id, $b->id);
+        return strcmp($a->id, $b->id) <= 0
+            ? $a->id.'-'.$b->id
+            : $b->id.'-'.$a->id;
     }
 
     /**
@@ -84,7 +243,7 @@ class Conversation extends Model
         return DB::transaction(function () use ($a, $b) {
             $conversation = static::createOrFirst(
                 ['direct_key' => static::directKeyFor($a, $b)],
-                ['type' => ConversationType::Direct, 'created_by' => $a->id],
+                ['type' => ConversationType::Direct, 'owner_id' => null],
             );
 
             DB::table('conversation_user')->insertOrIgnore([

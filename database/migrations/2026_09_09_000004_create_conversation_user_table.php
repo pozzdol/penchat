@@ -9,17 +9,24 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('conversation_user', function (Blueprint $table) {
-            $table->foreignId('conversation_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('user_id')->constrained()->cascadeOnDelete();
-            // Read state is a high-water mark, not a join table: a message is read
-            // by this participant when message.id <= last_read_message_id. It is
-            // deliberately NOT a foreign key — nullOnDelete would reset a reader's
-            // position whenever a message is removed, and restrict would block it.
-            $table->unsignedBigInteger('last_read_message_id')->nullable();
+            $table->foreignUlid('conversation_id')->constrained()->cascadeOnDelete();
+            $table->foreignUlid('user_id')->constrained()->cascadeOnDelete();
+            $table->string('role', 10)->default('member');
+
+            // Two high-water marks. A message is read by this participant when
+            // its id is at or below the first, and hidden from them when it is
+            // at or below the second.
+            //
+            // Deliberately NOT foreign keys: they are values to compare
+            // against, and nullOnDelete would silently rewind someone's
+            // position whenever a message is removed.
+            $table->char('last_read_message_id', 26)->nullable();
+            $table->char('cleared_up_to_message_id', 26)->nullable();
             $table->timestamp('joined_at')->useCurrent();
 
             $table->primary(['conversation_id', 'user_id']);
-            // Postgres does not index FK columns for you; "my conversations" needs this.
+            // Postgres does not index FK columns for you; "my conversations"
+            // needs this one.
             $table->index('user_id');
         });
     }

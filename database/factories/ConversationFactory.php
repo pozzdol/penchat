@@ -17,7 +17,7 @@ class ConversationFactory extends Factory
             'type' => ConversationType::Group,
             'name' => fake()->words(2, true),
             'direct_key' => null,
-            'created_by' => User::factory(),
+            'owner_id' => User::factory(),
         ];
     }
 }

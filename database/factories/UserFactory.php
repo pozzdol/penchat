@@ -19,6 +19,9 @@ class UserFactory extends Factory
     {
         return [
             'name' => fake()->name(),
+            // Must satisfy User::USERNAME_REGEX — a letter, then 2-19 of
+            // [a-z0-9_]. The numeric suffix is what keeps it unique.
+            'username' => 'u'.fake()->unique()->numberBetween(1000, 999999),
             'email' => fake()->unique()->safeEmail(),
             'email_verified_at' => now(),
             'password' => null,

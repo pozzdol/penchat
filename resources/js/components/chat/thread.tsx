@@ -1,6 +1,8 @@
 import { DeliveryMark, deliveryLabel } from '@/components/chat/delivery-mark';
 import { PresenceAvatar } from '@/components/chat/presence-avatar';
 import { BrandLockup } from '@/components/chat/brand';
+import { NewChatDialog } from '@/components/chat/new-chat-dialog';
+import { Button } from '@/components/ui/button';
 import { buildThread, conversationTitle, counterpart, time, type ThreadItem } from '@/lib/chat';
 import { cn } from '@/lib/utils';
 import type { Conversation, Participant } from '@/types';
@@ -12,7 +14,7 @@ interface Props {
     currentUser: Participant;
     /** Names of people currently composing. Never persisted — a whisper only. */
     typing: string[];
-    onRetry: (messageId: number) => void;
+    onRetry: (messageId: string) => void;
 }
 
 export function Thread({ conversation, items, currentUser, typing, onRetry }: Props) {
@@ -55,7 +57,7 @@ function MessageRow({
     item: ThreadItem;
     conversation: Conversation;
     currentUser: Participant;
-    onRetry: (messageId: number) => void;
+    onRetry: (messageId: string) => void;
 }) {
     const { message, author, startsRun, endsRun, dayBreak } = item;
     const mine = message.user_id === currentUser.id;
@@ -177,14 +179,34 @@ function TypingIndicator({ names }: { names: string[] }) {
     );
 }
 
-/** Shown when no conversation is open — the third pane is never blank. */
-export function ThreadEmpty() {
+/**
+ * Shown when no conversation is open — the third pane is never blank, and it is
+ * exactly where someone with no chats yet is standing, so it carries both the
+ * way in and the handle to hand out.
+ */
+export function ThreadEmpty({ currentUser }: { currentUser: Participant }) {
     return (
         <div className="flex flex-1 flex-col items-center justify-center gap-6 px-8 text-center">
             <BrandLockup tagline className="text-ink" />
+
             <p className="max-w-xs text-[0.8125rem] text-ink-mute">
-                Pick a chat on the left to read it here, or search for someone to start a new one.
+                Pick a chat on the left to read it here, or start one with someone’s username.
             </p>
+
+            <NewChatDialog
+                trigger={
+                    <Button type="button" variant="outline" className="h-11">
+                        New chat
+                    </Button>
+                }
+            />
+
+            {currentUser.username ? (
+                <p className="text-[0.8125rem] text-ink-mute">
+                    You are <span className="font-medium text-ink">@{currentUser.username}</span> — share
+                    it so people can find you.
+                </p>
+            ) : null}
         </div>
     );
 }

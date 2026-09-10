@@ -144,34 +144,67 @@ a queued job.
 
 ## Data model
 
-Four tables. Do not add more without asking.
+**Five tables.** Do not add more without asking.
 
 ```
-conversations       id, type ('direct'|'group'), name?, direct_key? (unique), created_by
-conversation_user   conversation_id, user_id, last_read_message_id?, joined_at   # pivot
-messages            id, conversation_id, user_id, body?, created_at
-attachments         id, message_id, path, original_name, mime, size
+users               id (ULID), name, username (unique, lowercase), email (unique),
+                    email_verified_at?, password? (always null - sign-in is a code)
+conversations       id (ULID), type ('direct'|'group'), name?, direct_key? (unique),
+                    owner_id? (null on a direct chat, transferable on a group),
+                    admins_can_promote, members_can_add
+conversation_user   conversation_id, user_id, role ('admin'|'member'),          # pivot
+                    last_read_message_id?, cleared_up_to_message_id?, joined_at
+messages            id (ULID), conversation_id, user_id, body?, created_at,
+                    edited_at?, deleted_at?
+attachments         id (ULID), message_id, path, original_name, mime, size
+message_user_deletions  message_id, user_id                                     # the fifth
 ```
 
-### Two load-bearing decisions - do not undo
+### Load-bearing decisions - do not undo
 
-**1. `direct_key`, not a participant-matching query.**
-For `type = 'direct'`, `direct_key` is the two user IDs sorted ascending and
-joined: `min-max` (e.g. `3-17`). Unique index on it. This makes "find or
-create the DM between A and B" a single upsert and lets the database resolve
+**1. Keys are ULIDs, and the "L" is the point.**
+Auto-increment integers let any signed-in user count the rows behind a URL.
+ULID - **not** UUIDv4 - because decision 2 below compares ids with `>` and
+`<=`, so the keys have to sort by time. UUIDv4 is random and would silently
+destroy read state.
+
+Two consequences that bite:
+
+- **Never compare ids with PHP's `<`/`>`.** PHP compares two numeric-looking
+  strings numerically, and an all-digit ULID would order wrongly. Use
+  `strcmp()`. SQL is unaffected - Postgres compares `char` lexicographically.
+- **Never do arithmetic on an id.** A pointer is always some real message's id.
+- Ordering is exact within one PHP process (`Ulid::generate()` increments its
+  random block), but two messages written by different workers in the same
+  millisecond can order arbitrarily. Accepted: at five users it does not
+  happen, and the true order of two same-millisecond messages is ambiguous
+  anyway.
+
+**2. `direct_key`, not a participant-matching query.**
+For `type = 'direct'`, `direct_key` is the two user ULIDs ordered by `strcmp`
+and joined with a hyphen. Unique index on it. This makes "find or create the
+DM between A and B" a single race-safe upsert and lets the database resolve
 the race when both users open the chat simultaneously. Do not replace it with
 a "conversation having exactly these two participants" subquery.
 
-**2. Read state is a pointer, not a join table.**
+**3. Read state is a pointer, not a join table.**
 `conversation_user.last_read_message_id` is a high-water mark. A message is
 read by a participant when `message.id <= last_read_message_id`. Do not
 introduce a `message_reads` table - it grows with messages x participants
-and buys nothing at this scale.
+and buys nothing at this scale. `cleared_up_to_message_id` is the same shape
+for "hidden from my copy of this conversation".
 
-**3. A direct chat is a group with two participants.**
+**4. A direct chat is a group with two participants.**
 Build every feature group-first. A DM is `type = 'direct'` with two pivot
 rows - not a separate model, controller, or channel type. Only *presentation*
-differs (title, and "Read" vs "Read 3/5").
+differs (title, and "Read" vs "Read 3/5"). Roles are ignored entirely on a
+direct chat, and every management ability refuses outright there.
+
+**5. `message_user_deletions` is sparse, and must stay that way.**
+It exists because "delete for me" is per (message, reader) and cannot live on
+the message row. It earns its place only while rows appear solely where
+somebody actually hid something - unlike a read-receipt table, which would get
+a row per message per reader.
 
 ---
 

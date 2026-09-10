@@ -17,7 +17,7 @@ use Illuminate\Http\Resources\Json\JsonResource;
  */
 class MessageResource extends JsonResource
 {
-    public function __construct(Message $message, private int $readPointer = 0)
+    public function __construct(Message $message, private string $readPointer = '')
     {
         parent::__construct($message);
     }
@@ -32,7 +32,7 @@ class MessageResource extends JsonResource
             'body' => $this->body,
             'created_at' => $this->created_at->toIso8601String(),
             'attachments' => AttachmentResource::collection($this->attachments),
-            'delivery' => $this->id <= $this->readPointer ? 'read' : 'sent',
+            'delivery' => strcmp($this->id, $this->readPointer) <= 0 ? 'read' : 'sent',
         ];
     }
 }

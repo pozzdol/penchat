@@ -5,7 +5,7 @@ import type { Conversation, Message, Participant } from '@/types';
  * only the *presentation* differs: a group carries its own name, a direct chat
  * borrows the other participant's.
  */
-export function conversationTitle(conversation: Conversation, currentUserId: number): string {
+export function conversationTitle(conversation: Conversation, currentUserId: string): string {
     if (conversation.name) {
         return conversation.name;
     }
@@ -13,7 +13,7 @@ export function conversationTitle(conversation: Conversation, currentUserId: num
     return counterpart(conversation, currentUserId)?.name ?? 'Unknown';
 }
 
-export function counterpart(conversation: Conversation, currentUserId: number): Participant | null {
+export function counterpart(conversation: Conversation, currentUserId: string): Participant | null {
     return conversation.participants.find((p) => p.id !== currentUserId) ?? null;
 }
 

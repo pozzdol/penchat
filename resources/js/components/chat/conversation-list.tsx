@@ -1,17 +1,18 @@
 import { DeliveryMark } from '@/components/chat/delivery-mark';
+import { NewChatDialog } from '@/components/chat/new-chat-dialog';
 import { PresenceAvatar } from '@/components/chat/presence-avatar';
 import { Input } from '@/components/ui/input';
 import { conversationTitle, counterpart, listTime } from '@/lib/chat';
 import { cn } from '@/lib/utils';
 import type { Conversation, Participant } from '@/types';
-import { AtSign, Search, Users } from 'lucide-react';
+import { AtSign, Search, SquarePen, Users } from 'lucide-react';
 import { useMemo, useState } from 'react';
 
 interface Props {
     conversations: Conversation[];
     currentUser: Participant;
-    activeId: number | null;
-    onSelect: (id: number) => void;
+    activeId: string | null;
+    onSelect: (id: string) => void;
     className?: string;
 }
 
@@ -48,9 +49,23 @@ export function ConversationList({
             {/* Generous above, tight below — the header should not compete with
                 the list it introduces. */}
             <div className="px-4 pt-5 pb-3">
-                <h1 className="text-[1.375rem] leading-none font-semibold tracking-[-0.02em]">
-                    Chats
-                </h1>
+                <div className="flex items-center justify-between gap-2">
+                    <h1 className="text-[1.375rem] leading-none font-semibold tracking-[-0.02em]">
+                        Chats
+                    </h1>
+
+                    <NewChatDialog
+                        trigger={
+                            <button
+                                type="button"
+                                className="-me-2 grid size-11 shrink-0 place-items-center rounded-full text-ink-mute transition-colors duration-(--dur-micro) ease-out hover:bg-surface-2 hover:text-ink active:bg-surface-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-info"
+                            >
+                                <SquarePen className="size-5" aria-hidden />
+                                <span className="sr-only">New chat</span>
+                            </button>
+                        }
+                    />
+                </div>
 
                 <div className="relative mt-4">
                     <Search
@@ -96,7 +111,7 @@ function ConversationRow({
     conversation: Conversation;
     currentUser: Participant;
     selected: boolean;
-    onSelect: (id: number) => void;
+    onSelect: (id: string) => void;
 }) {
     const title = conversationTitle(conversation, currentUser.id);
     const other = counterpart(conversation, currentUser.id);

@@ -6,6 +6,7 @@ use App\Http\Resources\ConversationResource;
 use App\Http\Resources\MessageResource;
 use App\Http\Resources\ParticipantResource;
 use App\Models\Conversation;
+use App\Models\Message;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -34,40 +35,60 @@ class ChatController extends Controller
         /** @var User $user */
         $user = $request->user();
 
-        $conversations = $user->conversations()
-            ->with(['participants', 'latestMessage.attachments'])
-            ->get()
-            ->sortByDesc(fn (Conversation $c) => $c->latestMessage?->created_at ?? $c->created_at)
-            ->values();
-
-        // Reuse the eager-loaded instance rather than the bare one from route binding.
-        $active = $requested
-            ? $conversations->firstWhere('id', $requested->id)
-            : $conversations->first();
-
-        $unread = $this->unreadCounts($user);
-
-        $messages = $active
-            ? $active->messages()
-                ->with('attachments')
-                ->orderByDesc('id')
-                ->limit(self::THREAD_LIMIT)
+        // Resolved lazily and memoised: a partial reload that asks only for
+        // `messages` must not pay for the conversation list. Inertia skips a
+        // prop closure entirely when it is not in the `only` set
+        // (PropsResolver::resolveProps continues before resolveValue), but a
+        // value computed here in the controller would already have cost us.
+        $conversations = null;
+        $load = function () use (&$conversations, $user): Collection {
+            return $conversations ??= $user->conversations()
+                ->with(['participants', 'latestMessage.attachments'])
                 ->get()
-                ->reverse()
-                ->values()
-            : collect();
+                ->sortByDesc(fn (Conversation $c) => $c->latestMessage?->created_at ?? $c->created_at)
+                ->values();
+        };
 
-        $pointer = $active?->readPointerFor($user) ?? 0;
+        $active = function () use ($load, $requested): ?Conversation {
+            // Reuse the eager-loaded instance rather than the bare one from
+            // route binding, so the pivot and participants are present.
+            return $requested
+                ? $load()->firstWhere('id', $requested->id)
+                : $load()->first();
+        };
 
         return Inertia::render('chat', [
             'current_user' => new ParticipantResource($user, online: true),
-            'conversations' => $conversations
-                ->map(fn (Conversation $c) => new ConversationResource($c, $user, $unread[$c->id] ?? 0))
-                ->all(),
-            'active_conversation_id' => $active?->id,
-            'messages' => $messages
-                ->map(fn ($m) => new MessageResource($m, $pointer))
-                ->all(),
+
+            'conversations' => function () use ($load, $user) {
+                $unread = $this->unreadCounts($user);
+
+                return $load()
+                    ->map(fn (Conversation $c) => new ConversationResource($c, $user, $unread[$c->id] ?? 0))
+                    ->all();
+            },
+
+            'active_conversation_id' => fn () => $active()?->id,
+
+            'messages' => function () use ($active, $user) {
+                $conversation = $active();
+
+                if (! $conversation) {
+                    return [];
+                }
+
+                $pointer = $conversation->readPointerFor($user);
+
+                return $conversation->messages()
+                    ->with('attachments')
+                    ->orderByDesc('id')
+                    ->limit(self::THREAD_LIMIT)
+                    ->get()
+                    ->reverse()
+                    ->values()
+                    ->map(fn (Message $m) => new MessageResource($m, $pointer))
+                    ->all();
+            },
         ]);
     }
 
@@ -84,7 +105,7 @@ class ChatController extends Controller
                 $join->on('cu.conversation_id', '=', 'm.conversation_id')
                     ->where('cu.user_id', $user->id);
             })
-            ->whereRaw('m.id > coalesce(cu.last_read_message_id, 0)')
+            ->whereRaw("m.id > coalesce(cu.last_read_message_id, '')")
             ->where('m.user_id', '!=', $user->id)
             ->groupBy('m.conversation_id')
             ->selectRaw('m.conversation_id as conversation_id, count(*) as unread')

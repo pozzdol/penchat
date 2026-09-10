@@ -5,11 +5,6 @@ use App\Models\Conversation;
 use App\Models\Message;
 use App\Models\User;
 
-function say(Conversation $c, User $from, string $body): Message
-{
-    return Message::factory()->create(['conversation_id' => $c->id, 'user_id' => $from->id, 'body' => $body]);
-}
-
 it('renders the chat page with the payload shape the client expects', function () {
     [$me, $other] = User::factory()->count(2)->create();
     $dm = Conversation::findOrCreateDirect($me, $other);
@@ -18,16 +13,34 @@ it('renders the chat page with the payload shape the client expects', function (
     $this->actingAs($me)->get('/')->assertInertia(fn ($page) => $page
         ->component('chat')
         ->where('current_user.id', $me->id)
+        ->where('current_user.username', $me->username)
         ->where('current_user.online', true)
         ->where('active_conversation_id', $dm->id)
         ->has('conversations', 1, fn ($c) => $c
             ->where('id', $dm->id)
             ->where('type', 'direct')
             ->where('name', null)
-            ->has('participants', 2)
+            // A direct chat has no owner and no roles: two equals.
+            ->where('owner_id', null)
+            ->where('viewer_role', 'member')
+            ->where('members_can_add', false)
+            ->where('admins_can_promote', false)
+            ->has('participants', 2, fn ($p) => $p
+                ->where('username', fn ($u) => is_string($u))
+                ->where('role', null)
+                ->etc())
             ->where('last_message.body', 'hello')
             ->where('unread_count', 1)
-            ->where('mentioned', false))
+            ->where('mentioned', false)
+            // Every management ability is refused outside a group.
+            ->has('can', fn ($can) => $can
+                ->where('add_member', false)
+                ->where('remove_member', false)
+                ->where('manage_admins', false)
+                ->where('update_settings', false)
+                ->where('update_owner_settings', false)
+                ->where('transfer_ownership', false)
+                ->where('leave', false)))
         ->has('messages', 1, fn ($m) => $m
             ->where('body', 'hello')
             ->where('user_id', $other->id)
@@ -78,7 +91,7 @@ it('orders conversations by their latest message', function () {
 it('only lists conversations I belong to and opens the requested one', function () {
     [$me, $a, $b, $c] = User::factory()->count(4)->create();
     $mine = Conversation::findOrCreateDirect($me, $a);
-    $group = Conversation::factory()->create(['type' => ConversationType::Group, 'name' => 'Ops', 'created_by' => $b->id]);
+    $group = Conversation::factory()->create(['type' => ConversationType::Group, 'name' => 'Ops', 'owner_id' => $b->id]);
     $group->participants()->attach([$me->id, $b->id]);
     $notMine = Conversation::findOrCreateDirect($b, $c);
 

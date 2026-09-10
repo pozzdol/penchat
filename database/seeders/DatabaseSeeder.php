@@ -2,7 +2,6 @@
 
 namespace Database\Seeders;
 
-use App\Enums\ConversationType;
 use App\Models\Conversation;
 use App\Models\Message;
 use App\Models\User;
@@ -13,11 +12,11 @@ class DatabaseSeeder extends Seeder
 {
     public function run(): void
     {
-        $me = User::factory()->create(['name' => 'Fikri Anshori', 'email' => 'fikri@example.com']);
-        $luis = User::factory()->create(['name' => 'Luís Kolen', 'email' => 'luis@example.com']);
-        $paul = User::factory()->create(['name' => 'Paul Davies', 'email' => 'paul@example.com']);
-        $mathilda = User::factory()->create(['name' => 'Mathilda Bond', 'email' => 'mathilda@example.com']);
-        $peter = User::factory()->create(['name' => 'Peter Swensen', 'email' => 'peter@example.com']);
+        $me = User::factory()->create(['name' => 'Fikri Anshori', 'username' => 'fikri', 'email' => 'fikri@example.com']);
+        $luis = User::factory()->create(['name' => 'Luís Kolen', 'username' => 'luis', 'email' => 'luis@example.com']);
+        $paul = User::factory()->create(['name' => 'Paul Davies', 'username' => 'paul', 'email' => 'paul@example.com']);
+        $mathilda = User::factory()->create(['name' => 'Mathilda Bond', 'username' => 'mathilda', 'email' => 'mathilda@example.com']);
+        $peter = User::factory()->create(['name' => 'Peter Swensen', 'username' => 'peter', 'email' => 'peter@example.com']);
 
         $say = fn (Conversation $c, User $from, string $body, Carbon $at): Message => Message::create([
             'conversation_id' => $c->id,
@@ -32,8 +31,10 @@ class DatabaseSeeder extends Seeder
         $say($dm, $me, 'It did. Both env blocks, server and browser.', now()->subDay()->setTime(9, 14));
         $mine = $say($dm, $me, 'The VITE_ ones need a rebuild to take effect, so I ran one.', now()->subDay()->setTime(9, 14));
         $say($dm, $luis, 'Good catch. That one bites every time.', now()->subDay()->setTime(9, 31));
-        $say($dm, $luis, 'I am still thinking about the read-receipt design though.', now()->subMinutes(42));
-        $this->read($dm, $luis, $mine->id + 2);
+        $newest = $say($dm, $luis, 'I am still thinking about the read-receipt design though.', now()->subMinutes(42));
+        // Ids are ULIDs, so a pointer is always some real message's id — never
+        // an id plus an offset.
+        $this->read($dm, $luis, $newest->id);
         $this->read($dm, $me, $mine->id);
 
         $dm = Conversation::findOrCreateDirect($me, $paul);
@@ -64,20 +65,10 @@ class DatabaseSeeder extends Seeder
     /** @param  list<User>  $members */
     private function group(string $name, User $creator, array $members): Conversation
     {
-        $conversation = Conversation::create([
-            'type' => ConversationType::Group,
-            'name' => $name,
-            'created_by' => $creator->id,
-        ]);
-
-        $conversation->participants()->attach(
-            collect([$creator, ...$members])->mapWithKeys(fn (User $u) => [$u->id => ['joined_at' => now()]])->all(),
-        );
-
-        return $conversation;
+        return Conversation::createGroup($name, $creator, $members);
     }
 
-    private function read(Conversation $conversation, User $reader, int $messageId): void
+    private function read(Conversation $conversation, User $reader, string $messageId): void
     {
         $conversation->participants()->updateExistingPivot($reader->id, ['last_read_message_id' => $messageId]);
     }

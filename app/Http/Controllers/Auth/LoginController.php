@@ -8,6 +8,7 @@ use App\Http\Requests\Auth\RegisterNameRequest;
 use App\Http\Requests\Auth\SendCodeRequest;
 use App\Http\Requests\Auth\VerifyCodeRequest;
 use App\Models\User;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -103,12 +104,25 @@ class LoginController extends Controller
             return to_route('login');
         }
 
-        // firstOrCreate: two tabs finishing the same sign-up resolve on the
-        // users.email unique index instead of a 500.
-        $user = User::query()->firstOrCreate(
-            ['email' => $email],
-            ['name' => $request->validated('name'), 'email_verified_at' => now()],
-        );
+        try {
+            // firstOrCreate: two tabs finishing the same sign-up resolve on the
+            // users.email unique index instead of a 500.
+            $user = User::query()->firstOrCreate(
+                ['email' => $email],
+                [
+                    'name' => $request->validated('name'),
+                    'username' => $request->validated('username'),
+                    'email_verified_at' => now(),
+                ],
+            );
+        } catch (UniqueConstraintViolationException) {
+            // The username was free when it validated and taken by the time we
+            // inserted. Only the username index can land here: the email is
+            // matched by firstOrCreate itself.
+            throw ValidationException::withMessages([
+                'username' => 'That username is taken.',
+            ]);
+        }
 
         return $this->signIn($request, $user);
     }

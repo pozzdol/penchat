@@ -1,7 +1,7 @@
 import { BrandLockup } from '@/components/chat/brand';
+import { Field, UsernameInput } from '@/components/field';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { cn } from '@/lib/utils';
 import type { LoginPageProps } from '@/types';
 import { Head, router, useForm } from '@inertiajs/react';
 import type { FormEvent, ReactNode } from 'react';
@@ -111,7 +111,7 @@ function CodeStep({ email }: { email: string }) {
 }
 
 function NameStep({ email }: { email: string }) {
-    const form = useForm({ name: '' });
+    const form = useForm({ name: '', username: '' });
 
     const submit = (e: FormEvent) => {
         e.preventDefault();
@@ -119,10 +119,10 @@ function NameStep({ email }: { email: string }) {
     };
 
     return (
-        <form onSubmit={submit} className="flex flex-col gap-5">
+        <form onSubmit={submit} className="flex flex-col gap-4">
             <Intro title="Welcome">
-                <span className="font-medium text-ink">{email}</span> is verified. What should people
-                see you as?
+                <span className="font-medium text-ink">{email}</span> is verified. Pick how you appear
+                and how people reach you.
             </Intro>
 
             <Field label="Your name" htmlFor="name" error={form.errors.name}>
@@ -136,6 +136,21 @@ function NameStep({ email }: { email: string }) {
                     onChange={(e) => form.setData('name', e.target.value)}
                     aria-invalid={form.errors.name ? true : undefined}
                     className="h-11"
+                />
+            </Field>
+
+            <Field
+                label="Username"
+                htmlFor="username"
+                error={form.errors.username}
+                hint="Letters, numbers and underscores. This is how people find you."
+            >
+                <UsernameInput
+                    id="username"
+                    required
+                    value={form.data.username}
+                    onValueChange={(v) => form.setData('username', v)}
+                    aria-invalid={form.errors.username ? true : undefined}
                 />
             </Field>
 
@@ -155,35 +170,6 @@ function Intro({ title, children }: { title: string; children: ReactNode }) {
         <div className="flex flex-col gap-1.5">
             <h1 className="text-[1.125rem] leading-tight font-semibold tracking-[-0.01em]">{title}</h1>
             <p className="text-[0.875rem] leading-[1.5] text-ink-mute">{children}</p>
-        </div>
-    );
-}
-
-/** Label above, helper slot below with a reserved line so an error never shifts the form. */
-function Field({
-    label,
-    htmlFor,
-    error,
-    children,
-}: {
-    label: string;
-    htmlFor: string;
-    error?: string;
-    children: ReactNode;
-}) {
-    return (
-        <div className="flex flex-col gap-1.5">
-            <label htmlFor={htmlFor} className="text-[0.8125rem] font-medium">
-                {label}
-            </label>
-            {children}
-            <p
-                id={`${htmlFor}-help`}
-                role={error ? 'alert' : undefined}
-                className={cn('min-h-[1lh] text-[0.8125rem]', error ? 'text-bad' : 'text-ink-mute')}
-            >
-                {error ?? ''}
-            </p>
         </div>
     );
 }

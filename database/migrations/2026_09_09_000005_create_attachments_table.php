@@ -9,8 +9,8 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('attachments', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('message_id')->constrained()->cascadeOnDelete();
+            $table->ulid('id')->primary();
+            $table->foreignUlid('message_id')->constrained()->cascadeOnDelete();
             $table->string('path');
             $table->string('original_name');
             $table->string('mime', 127);

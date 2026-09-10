@@ -21,11 +21,12 @@ export function ThreadHeader({ conversation, currentUser, onBack }: Props) {
        here right now. For a group that is a count, for a direct chat it is a
        single word — and in both cases it is text, not just a coloured dot. */
     const online = conversation.participants.filter((p) => p.online).length;
+    const presence = other?.online ? 'Online' : 'Offline';
     const subtitle = isGroup
         ? `${conversation.participants.length} members · ${online} online`
-        : other?.online
-          ? 'Online'
-          : 'Offline';
+        : other?.username
+          ? `@${other.username} · ${presence}`
+          : presence;
 
     return (
         <header className="flex h-16 shrink-0 items-center gap-3 border-b border-line bg-page px-4 md:px-6">

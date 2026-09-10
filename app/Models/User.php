@@ -6,17 +6,32 @@ namespace App\Models;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
+use Illuminate\Database\Eloquent\Concerns\HasUlids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Str;
 
-#[Fillable(['name', 'email', 'email_verified_at'])]
+#[Fillable(['name', 'username', 'email', 'email_verified_at'])]
 #[Hidden(['password', 'remember_token'])]
 class User extends Authenticatable
 {
     /** @use HasFactory<UserFactory> */
-    use HasFactory, Notifiable;
+    use HasFactory, HasUlids, Notifiable;
+
+    /**
+     * Three to twenty characters, starting with a letter. Lowercase only —
+     * usernames are stored lowercase so the unique index is case-insensitive,
+     * and every entry point normalises before it validates.
+     */
+    public const USERNAME_REGEX = '/^[a-z][a-z0-9_]{2,19}$/';
+
+    /** Trim, drop a leading @, lowercase. Shared by every field that takes one. */
+    public static function normalizeUsername(mixed $value): string
+    {
+        return Str::lower(ltrim(trim((string) $value), '@'));
+    }
 
     /**
      * Get the attributes that should be cast.
@@ -44,6 +59,6 @@ class User extends Authenticatable
     public function conversations(): BelongsToMany
     {
         return $this->belongsToMany(Conversation::class)
-            ->withPivot('last_read_message_id', 'joined_at');
+            ->withPivot('role', 'last_read_message_id', 'cleared_up_to_message_id', 'joined_at');
     }
 }
