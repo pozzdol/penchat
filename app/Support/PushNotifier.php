@@ -5,6 +5,7 @@ namespace App\Support;
 use App\Models\Message;
 use App\Models\PushSubscription;
 use App\Models\User;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 /**
@@ -37,15 +38,36 @@ class PushNotifier
      */
     public static function messageSent(Message $message): void
     {
-        $recipients = self::recipients($message);
+        /*
+         * Nothing in here may throw, and the guard belongs here rather than
+         * only in the sender. This runs from a terminating callback, after
+         * the response has gone out: an escaping exception cannot reach the
+         * person who sent the message, but it can reach the error handler,
+         * which then tries to set headers on a response already written and
+         * turns one failed notification into a second, more confusing error
+         * in the log.
+         *
+         * It is not hypothetical — the query below threw `relation
+         * "push_subscriptions" does not exist` for every message sent between
+         * this code landing and the migration running, and each one logged a
+         * "headers already sent" trace behind it.
+         *
+         * The message is committed and broadcast before this is reached, so
+         * whatever happens here, the conversation is already correct.
+         */
+        try {
+            $recipients = self::recipients($message);
 
-        if ($recipients === []) {
-            return;
+            if ($recipients === []) {
+                return;
+            }
+
+            $subscriptions = PushSubscription::whereIn('user_id', $recipients)->get();
+
+            app(WebPushSender::class)->send($subscriptions, self::payload($message));
+        } catch (\Throwable $e) {
+            Log::error('Push notification failed.', ['exception' => $e]);
         }
-
-        $subscriptions = PushSubscription::whereIn('user_id', $recipients)->get();
-
-        app(WebPushSender::class)->send($subscriptions, self::payload($message));
     }
 
     /**

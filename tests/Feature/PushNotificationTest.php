@@ -317,3 +317,35 @@ it('does nothing when no VAPID keys are configured', function () {
 
     expect(PushSubscription::count())->toBe(1);
 });
+
+/**
+ * This ran after the response has already been written, so an exception here
+ * cannot reach the sender — but it does reach the error handler, which then
+ * tries to set headers on a response that is already out and logs a second,
+ * more confusing failure behind the first. That happened for real: every
+ * message sent between this code landing and the migration running threw
+ * `relation "push_subscriptions" does not exist` and a "headers already
+ * sent" trace after it.
+ */
+it('never lets a failed push escape into the request that is already done', function () {
+    app()->instance(WebPushSender::class, new class extends WebPushSender
+    {
+        public function send(Collection $subscriptions, array $payload): void
+        {
+            throw new RuntimeException('the push service is on fire');
+        }
+    });
+
+    [$author, $reader] = User::factory()->count(2)->create();
+    $dm = Conversation::findOrCreateDirect($author, $reader);
+    subscribe($reader, 'https://push.example.com/reader');
+
+    $this->actingAs($author)
+        ->post("/conversations/{$dm->id}/messages", ['body' => 'hello'])
+        ->assertRedirect()
+        ->assertSessionHasNoErrors();
+
+    // The message itself is committed and broadcast before the push is even
+    // attempted, so a dead push service must never cost anybody their words.
+    expect($dm->messages()->count())->toBe(1);
+});
