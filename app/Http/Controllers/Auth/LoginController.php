@@ -64,7 +64,7 @@ class LoginController extends Controller
             return to_route('login');
         }
 
-        if (! $this->codes->verify($email, $request->validated('code'))) {
+        if (! $this->codes->verify($email, $request->validated('code'), (string) $request->ip())) {
             // One message for wrong, expired and burned: nothing to enumerate.
             throw ValidationException::withMessages([
                 'code' => 'That code is not right or has expired.',

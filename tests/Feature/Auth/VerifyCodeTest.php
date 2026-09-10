@@ -4,6 +4,7 @@ use App\Mail\LoginCodeMail;
 use App\Models\User;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\RateLimiter;
 
 /** Requests a code for $email and returns the six digits that were mailed. */
 function requestCode(string $email): string
@@ -103,4 +104,135 @@ it('validates the code format before touching the cache', function () {
     $this->withSession(['otp.email' => 'ana@example.com'])
         ->post('/login/code', ['code' => '12ab'])
         ->assertSessionHasErrors('code');
+});
+
+/*
+|--------------------------------------------------------------------------
+| What it costs to guess
+|--------------------------------------------------------------------------
+|
+| Burning a code after five wrong guesses is the right defence against a
+| brute force, and on its own it is also a weapon: anyone may put a known
+| address into their own session and destroy that person's code five guesses
+| at a time. The per-address budget is what makes guessing cost the guesser
+| something. These tests are about that budget, not about the code.
+|
+*/
+
+/** Any six digits that are not the real code. */
+function otherThan(string $code): string
+{
+    return $code === '000000' ? '000001' : '000000';
+}
+
+/** One guess at `$email`'s code, made from `$ip`. */
+function guessFrom(string $ip, string $email, string $code)
+{
+    return test()
+        ->withServerVariables(['REMOTE_ADDR' => $ip])
+        ->withSession(['otp.email' => $email])
+        ->post('/login/code', ['code' => $code]);
+}
+
+it('refuses more guesses once one address has spent its budget', function () {
+    User::factory()->create(['email' => 'ana@example.com']);
+
+    foreach (range(1, 10) as $_) {
+        guessFrom('203.0.113.9', 'ana@example.com', '000000')
+            ->assertSessionHasErrors(['code' => 'That code is not right or has expired.']);
+    }
+
+    guessFrom('203.0.113.9', 'ana@example.com', '000000')
+        ->assertSessionHasErrors(['code' => 'Too many attempts. Try again in 10 minutes.']);
+});
+
+/**
+ * A guesser who has run out keeps paying. Without this the per-address budget
+ * is unreachable: five wrong guesses exhaust the per-account counter, every
+ * later attempt returns through that branch, and the guesser's own budget
+ * never moves — which is exactly how the first version of this was wrong.
+ */
+it('charges a guess even after the account counter is spent', function () {
+    User::factory()->create(['email' => 'ana@example.com']);
+
+    foreach (range(1, 7) as $_) {
+        guessFrom('203.0.113.9', 'ana@example.com', '000000');
+    }
+
+    expect(RateLimiter::attempts('otp-verify:ip:203.0.113.9'))->toBe(7);
+});
+
+/**
+ * A new code has to come with a new five guesses, or the counter is a
+ * ten-minute lock on the address rather than on the code — and freezing
+ * somebody out would cost five wrong guesses and no more.
+ */
+it('gives a freshly requested code its own five guesses', function () {
+    $user = User::factory()->create(['email' => 'ana@example.com']);
+    $first = requestCode('ana@example.com');
+
+    foreach (range(1, 5) as $_) {
+        guessFrom('198.51.100.4', 'ana@example.com', otherThan($first));
+    }
+
+    $second = requestCode('ana@example.com');
+
+    guessFrom('198.51.100.4', 'ana@example.com', $second)->assertRedirect('/');
+    $this->assertAuthenticatedAs($user);
+});
+
+/**
+ * The invariant the number is chosen for: ten failures is fewer than the
+ * fifteen it takes to burn all three codes a person may request in a window,
+ * so one address can never take away every chance she has to sign in.
+ */
+it('stops one address burning every code a person may request', function () {
+    $user = User::factory()->create(['email' => 'ana@example.com']);
+
+    // Two codes destroyed, five guesses each, and the budget is gone.
+    foreach (range(1, 2) as $_) {
+        $code = requestCode('ana@example.com');
+
+        foreach (range(1, 5) as $_) {
+            guessFrom('203.0.113.9', 'ana@example.com', otherThan($code));
+        }
+
+        expect(Cache::has('otp:'.hash('sha256', 'ana@example.com')))->toBeFalse();
+    }
+
+    // Her third code is out of that address's reach, and still works.
+    $third = requestCode('ana@example.com');
+
+    guessFrom('203.0.113.9', 'ana@example.com', otherThan($third))
+        ->assertSessionHasErrors(['code' => 'Too many attempts. Try again in 10 minutes.']);
+
+    expect(Cache::has('otp:'.hash('sha256', 'ana@example.com')))->toBeTrue();
+
+    guessFrom('198.51.100.4', 'ana@example.com', $third)->assertRedirect('/');
+    $this->assertAuthenticatedAs($user);
+});
+
+/**
+ * Only failures are counted. An office behind one address is full of people
+ * signing in correctly, and none of them should pay for a guesser's budget.
+ */
+it('spends nothing when the code is right', function () {
+    User::factory()->create(['email' => 'ana@example.com']);
+    $code = requestCode('ana@example.com');
+
+    guessFrom('203.0.113.9', 'ana@example.com', $code)->assertRedirect('/');
+
+    expect(RateLimiter::attempts('otp-verify:ip:203.0.113.9'))->toBe(0);
+});
+
+/** The budget belongs to the guesser, not to the account being guessed at. */
+it('does not let one guesser spend another address budget', function () {
+    User::factory()->create(['email' => 'ana@example.com']);
+
+    foreach (range(1, 10) as $_) {
+        guessFrom('203.0.113.9', 'ana@example.com', '000000');
+    }
+
+    guessFrom('198.51.100.4', 'ana@example.com', '000000')
+        ->assertSessionHasErrors(['code' => 'That code is not right or has expired.']);
 });

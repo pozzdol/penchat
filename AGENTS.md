@@ -468,6 +468,14 @@ it that way.
 
 ## Deployment and environment
 
+**`trustProxies` is load-bearing, not hygiene.** Cloudflare Tunnel terminates
+TLS and `cloudflared` reaches nginx over loopback, so without the entry in
+`bootstrap/app.php` every request reports `127.0.0.1` as its client address.
+Redirects and the session cookie are the visible half; the quiet half is that
+every per-IP rate limit — sign-in codes, verification guesses, username
+lookups — collapses into one global bucket shared by the entire internet, and
+nothing anywhere raises an error about it.
+
 Reverb needs two distinct sets of env values - server-side (`REVERB_*`) and
 browser-side (`VITE_REVERB_*`). Mixing them up produces "works locally, dead
 in production", the most common failure here. Any `VITE_*` change requires
