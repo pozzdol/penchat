@@ -94,13 +94,33 @@ docs: document bun-only toolchain
 
 ### Version tags
 
-Semantic versioning, annotated tags, prefix `v`. Stay on `0.x.y` until the
-schema and broadcast payloads are stable; while pre-1.0 a breaking change
-bumps **minor**, not major. Tag only when asked; the tag message follows the
-same one-line, no-watermark rule as commits.
+**Every commit gets an annotated tag**, prefix `v`, starting from `v0.0.0`.
+The tag message repeats the commit subject and follows the same one-line,
+no-watermark rule.
+
+Positions are defined by the *kind of work*, not by what breaks. This app is
+deployed, not installed — nothing depends on its API, so "will this break a
+consumer" has no reader, while "what sort of change was this" is exactly what
+someone choosing a rollback target needs.
+
+| Position | Bumps when |
+| -------- | ---------- |
+| `0.0.x`  | a small change: a fix, a polish, a doc |
+| `0.x.0`  | a feature, or a phase from `docs/fase.md` |
+| `x.0.0`  | rework, or a change to the core or the framework |
+
+**The first position is held at 0 until the app is meant to run in
+production.** Six migrations landed in two days; the schema and the broadcast
+payloads still move every phase, and a 1.0.0 would claim a stability that does
+not exist. `v1.0.0` marks the first release actually intended to be deployed.
+After that, it bumps on rework and core or framework changes as above.
+
+Without that gate the rule eats itself: in an app this young almost everything
+touches the core, so a literal reading reaches 2.0.0 in a week and the number
+stops meaning anything.
 
 ```bash
-git tag -a v0.3.0 -m "feat: read receipts and presence"
+git tag -a v0.3.0 -m "feat: add realtime, receipts, encryption and abuse limits"
 ```
 
 ---
