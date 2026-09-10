@@ -209,8 +209,15 @@ export function Composer({
                         aria-label={editing ? 'Edit message' : `Message ${title}`}
                         placeholder={editing ? 'Edit your message' : 'Write a message'}
                         className={cn(
-                            'max-h-40 min-h-11 w-full resize-none bg-transparent px-3.5 py-3',
-                            'text-[0.875rem] leading-[1.45] text-ink placeholder:text-ink-mute',
+                            'max-h-40 min-h-11 w-full resize-none bg-transparent px-3.5',
+                            /* 16px on a phone, and it has to be exactly that:
+                               Safari on iOS zooms the page in whenever a
+                               focused field computes under 16px, and it never
+                               zooms back out. The padding shrinks by the same
+                               amount the taller line box grows, so the field
+                               still matches the 44px buttons beside it. */
+                            'py-2.5 text-base md:py-3 md:text-[0.875rem]',
+                            'leading-[1.45] text-ink placeholder:text-ink-mute',
                             'focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-55',
                         )}
                     />
