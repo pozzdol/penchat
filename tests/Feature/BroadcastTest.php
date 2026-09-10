@@ -40,7 +40,7 @@ it('sends the wire shape the client types describe, without the per-viewer field
     // Mirrors the `Message` interface in resources/js/types/index.ts.
     expect(array_keys($payload))->toBe([
         'id', 'conversation_id', 'user_id', 'body',
-        'created_at', 'edited_at', 'deleted_at', 'attachments',
+        'created_at', 'edited_at', 'deleted_at', 'reply_to', 'attachments',
     ]);
 });
 

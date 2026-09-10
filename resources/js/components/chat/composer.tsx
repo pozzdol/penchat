@@ -1,9 +1,48 @@
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { Check, Paperclip, Pencil, SendHorizontal, X } from 'lucide-react';
+import { Check, CornerUpLeft, Paperclip, Pencil, SendHorizontal, X } from 'lucide-react';
 import { useEffect, useRef, useState, type ChangeEvent, type KeyboardEvent } from 'react';
 
 const MAX_ROWS_PX = 160;
+
+/**
+ * The strip above the field saying what this message will be. Editing and
+ * replying are the same shape on purpose — both answer "why does the composer
+ * look different right now", and two designs for one question is one too many.
+ */
+function Banner({
+    Icon,
+    label,
+    body,
+    dismiss,
+    onDismiss,
+}: {
+    Icon: typeof Pencil;
+    label: string;
+    body: string;
+    dismiss: string;
+    onDismiss: () => void;
+}) {
+    return (
+        <div className="mx-auto mb-2 flex w-full max-w-[110rem] items-center gap-2 rounded-lg bg-surface-2 py-1.5 ps-3 pe-1.5">
+            <Icon className="size-4 shrink-0 text-ink-mute" aria-hidden />
+            <span className="flex min-w-0 flex-1 flex-col">
+                <span className="text-[0.6875rem] font-medium text-ink-soft">{label}</span>
+                <span className="truncate text-[0.8125rem] text-ink-mute">{body}</span>
+            </span>
+            <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={onDismiss}
+                className="size-8 shrink-0 rounded-full text-ink-mute hover:bg-line hover:text-ink"
+            >
+                <X className="size-4" aria-hidden />
+                <span className="sr-only">{dismiss}</span>
+            </Button>
+        </div>
+    );
+}
 
 interface Props {
     /** Conversation title, so the field says what it is actually sending into. */
@@ -22,9 +61,16 @@ interface Props {
      * app saying no.
      */
     notice: string | null;
+    /**
+     * The message being replied to, if any. Mutually exclusive with `editing`
+     * — you are either rewriting your own words or answering someone else's,
+     * and the composer can only be one thing at a time.
+     */
+    replying: { id: string; author: string; body: string } | null;
     onSend: (body: string) => void;
     onEdit: (body: string) => void;
     onCancelEdit: () => void;
+    onCancelReply: () => void;
     onTyping: () => void;
 }
 
@@ -33,9 +79,11 @@ export function Composer({
     disabled = false,
     editing,
     notice,
+    replying,
     onSend,
     onEdit,
     onCancelEdit,
+    onCancelReply,
     onTyping,
 }: Props) {
     const [body, setBody] = useState('');
@@ -101,36 +149,22 @@ export function Composer({
             return;
         }
 
-        if (e.key === 'Escape' && editing) {
+        if (e.key === 'Escape' && (editing || replying)) {
             e.preventDefault();
-            cancel();
+            editing ? cancel() : onCancelReply();
         }
     };
 
     return (
         <div className="border-t border-line bg-page px-4 py-3 md:px-6">
-            {editing ? (
-                <div className="mx-auto mb-2 flex w-full max-w-[110rem] items-center gap-2 rounded-lg bg-surface-2 ps-3 pe-1.5 py-1.5">
-                    <Pencil className="size-4 shrink-0 text-ink-mute" aria-hidden />
-                    <span className="flex min-w-0 flex-1 flex-col">
-                        <span className="text-[0.6875rem] font-medium text-ink-soft">
-                            Editing message
-                        </span>
-                        <span className="truncate text-[0.8125rem] text-ink-mute">
-                            {editing.body}
-                        </span>
-                    </span>
-                    <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        onClick={cancel}
-                        className="size-8 shrink-0 rounded-full text-ink-mute hover:bg-line hover:text-ink"
-                    >
-                        <X className="size-4" aria-hidden />
-                        <span className="sr-only">Cancel edit</span>
-                    </Button>
-                </div>
+            {editing || replying ? (
+                <Banner
+                    Icon={editing ? Pencil : CornerUpLeft}
+                    label={editing ? 'Editing message' : `Replying to ${replying?.author}`}
+                    body={editing ? editing.body : (replying?.body ?? '')}
+                    dismiss={editing ? 'Cancel edit' : 'Cancel reply'}
+                    onDismiss={editing ? cancel : onCancelReply}
+                />
             ) : null}
 
             {notice ? (

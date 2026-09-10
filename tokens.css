@@ -57,6 +57,8 @@
  *   control / surface ... 3.48     control / page ......... 3.09
  *   fill / page ......... 1.88     text on fill ........... 7.13
  *   fill-ink-soft / fill  4.66     own vs their bubble .... 2.12
+ *   quote / surface ..... 1.23     text on quote .......... 9.24
+ *   quote-on-fill / fill  1.32     text on quote-on-fill .. 5.41
  *   rail / page ......... 1.41     rail icon .. 4.63   active .. 7.32
  *
  * Dark, measured — every pair clears AA body:
@@ -67,6 +69,8 @@
  *   control / surface ... 3.19     control / page ......... 3.58
  *   fill / page ......... 2.10     text on fill ........... 7.02
  *   fill-ink-soft / fill  5.18     own vs their bubble .... 1.87
+ *   quote / surface ..... 1.29     text on quote .......... 7.17
+ *   quote-on-fill / fill  1.35     text on quote-on-fill .. 5.19
  *   rail / page ......... 1.45     rail icon .. 5.18   active . 10.41
  *
  * Body text sits at ~10.2:1 in both themes — comfortably past AAA (7:1) and
@@ -86,6 +90,14 @@
     --surface: oklch(0.995 0.002 258);
     --surface-2: oklch(0.93 0.004 258);
     --line: oklch(0.87 0.006 258);
+
+    /* A quote sits one step off the bubble that holds it — 0.07 lightness,
+       the same distance in both themes. Down on paper, up in the dark,
+       because there the other side's bubble already sits on the floor and
+       has no room below it. Two tokens rather than one: the step has to be
+       measured from whichever ground the quote lands on. */
+    --quote: oklch(0.925 0.006 258);
+    --quote-on-fill: oklch(0.685 0.012 258);
     --control: oklch(0.628 0.012 258);
 
     --ink: oklch(0.345 0.012 258);
@@ -136,6 +148,8 @@
     --surface: oklch(0.275 0.009 258);
     --surface-2: oklch(0.3 0.01 258);
     --line: oklch(0.372 0.011 258);
+    --quote: oklch(0.345 0.011 258);
+    --quote-on-fill: oklch(0.505 0.018 258);
     --control: oklch(0.56 0.013 258);
 
     --ink: oklch(0.845 0.008 258);

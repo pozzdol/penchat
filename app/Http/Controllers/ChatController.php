@@ -60,12 +60,19 @@ class ChatController extends Controller
                 ->values();
         };
 
+        /**
+         * Only what was actually asked for.
+         *
+         * This used to fall back to the first conversation so the third pane
+         * was never blank, and it made the props lie: at `/` the page said a
+         * conversation was open when nobody had opened one. Mobile could not
+         * reach the list, Back did nothing, and closing a room reopened it.
+         * `ThreadEmpty` is the answer to an empty third pane — it always was.
+         */
         $active = function () use ($load, $requested): ?Conversation {
             // Reuse the eager-loaded instance rather than the bare one from
             // route binding, so the pivot and participants are present.
-            return $requested
-                ? $load()->firstWhere('id', $requested->id)
-                : $load()->first();
+            return $requested ? $load()->firstWhere('id', $requested->id) : null;
         };
 
         return Inertia::render('chat', [
@@ -97,7 +104,7 @@ class ChatController extends Controller
                 $delivered = $conversation->deliveredPointerFor($user);
 
                 return $this->visibleMessages($conversation, $user)
-                    ->with('attachments')
+                    ->with(['attachments', 'replyTo.author'])
                     ->orderByDesc('id')
                     ->limit(self::THREAD_LIMIT)
                     ->get()
@@ -182,7 +189,7 @@ class ChatController extends Controller
             return collect();
         }
 
-        return Message::with('attachments')
+        return Message::with(['attachments', 'replyTo.author'])
             ->whereIn('id', $ids)
             ->get()
             ->keyBy('conversation_id');

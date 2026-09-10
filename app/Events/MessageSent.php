@@ -75,7 +75,7 @@ class MessageSent implements ShouldBroadcastNow
      */
     public function broadcastWith(): array
     {
-        $payload = (new MessageResource($this->message->loadMissing('attachments')))
+        $payload = (new MessageResource($this->message->loadMissing(['attachments', 'replyTo.author'])))
             ->toArray(request());
 
         unset($payload['delivery']);

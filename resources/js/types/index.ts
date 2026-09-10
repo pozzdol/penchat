@@ -40,6 +40,20 @@ export interface Attachment {
     url: string;
 }
 
+/**
+ * The message a reply quotes.
+ *
+ * `body` is a snapshot frozen when reply was pressed, so it survives the
+ * original being edited or deleted. `author` and `deleted` come from the
+ * original, which always exists — deleting leaves a tombstone.
+ */
+export interface MessageQuote {
+    id: string;
+    author: string | null;
+    body: string | null;
+    deleted: boolean;
+}
+
 export interface Message {
     id: string;
     conversation_id: string;
@@ -54,6 +68,7 @@ export interface Message {
      * bug — but there is nothing left in it.
      */
     deleted_at: string | null;
+    reply_to: MessageQuote | null;
     attachments: Attachment[];
     delivery: MessageDelivery;
 }

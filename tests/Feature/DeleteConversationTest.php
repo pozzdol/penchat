@@ -40,11 +40,14 @@ it('comes back when someone writes again, carrying only what is new', function (
     $this->actingAs($me)->delete("/conversations/{$dm->id}");
     say($dm, $other, 'still there?');
 
+    // The row is back on the list, and opening it shows only what is new.
     $this->actingAs($me)->get('/')->assertInertia(fn ($page) => $page
         ->has('conversations', 1, fn ($c) => $c
             ->where('last_message.body', 'still there?')
             ->where('unread_count', 1)
-            ->etc())
+            ->etc()));
+
+    $this->actingAs($me)->get("/c/{$dm->id}")->assertInertia(fn ($page) => $page
         ->has('messages', 1, fn ($m) => $m->where('body', 'still there?')->etc()));
 });
 

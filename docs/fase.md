@@ -200,6 +200,28 @@ The owner wants both; deferred to their own discussion. Note that they need an
 app-level admin role, which does not exist yet — and once it does, the
 `suspended_until` design above could gain a manual lever.
 
+## Phase 2d — Replies, and closing a room ✅ done
+
+- **Reply with a quote.** `reply_to_message_id` links; `reply_to_body` is an
+  encrypted snapshot, so an edit to the original cannot rewrite the words
+  inside somebody else's message later.
+- **The gate.** The client sends an id and the server copies the text, so the
+  target is checked against exactly what the sender could have read: same
+  conversation, above their cleared pointer, not hidden by them. Four tests,
+  and they are the first ones in the file.
+- **Swipe right to reply** on touch. Captures only once the movement clearly
+  beats vertical, `touch-action: pan-y` leaves scrolling to the browser, and a
+  reply arrow tracks the finger — a gesture nobody can discover is worse than
+  no gesture. Right-click does the same job on desktop.
+- **Right-click the background** for Conversation info and Close room.
+- Closing forced a fix that paid for itself: dropping the server's auto-pick
+  at `/` deleted the `usePage().url` sniffing added during the mobile work.
+  Both breakpoints read one prop again.
+- Caught by measurement, not by eye: the quote's text on an own-bubble tint
+  came out at **3.79:1**. The same alpha-tint trap as the sidebar timestamps
+  months earlier. Hierarchy now comes from size and the bar, not from spending
+  contrast.
+
 ## Phase 3 — Attachments
 
 Multipart POST, mime/size validation, disk storage, `attachments` rows in the

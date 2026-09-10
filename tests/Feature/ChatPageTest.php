@@ -10,7 +10,7 @@ it('renders the chat page with the payload shape the client expects', function (
     $dm = Conversation::findOrCreateDirect($me, $other);
     say($dm, $other, 'hello');
 
-    $this->actingAs($me)->get('/')->assertInertia(fn ($page) => $page
+    $this->actingAs($me)->get("/c/{$dm->id}")->assertInertia(fn ($page) => $page
         ->component('chat')
         ->where('current_user.id', $me->id)
         ->where('current_user.username', $me->username)
@@ -51,7 +51,24 @@ it('renders the chat page with the payload shape the client expects', function (
             ->where('attachments', [])
             ->where('edited_at', null)
             ->where('deleted_at', null)
+            ->where('reply_to', null)
             ->etc()));
+
+    /**
+     * `/` opens nothing. It used to quietly select the first conversation, which
+     * made the props claim a room was open when nobody had opened one — the
+     * reason mobile could not reach the list and Close room had nothing to close.
+     */
+    it('opens no conversation at the root', function () {
+        [$me, $other] = User::factory()->count(2)->create();
+        $dm = Conversation::findOrCreateDirect($me, $other);
+        say($dm, $other, 'hello');
+
+        $this->actingAs($me)->get('/')->assertInertia(fn ($page) => $page
+            ->where('active_conversation_id', null)
+            ->has('messages', 0)
+            ->has('conversations', 1));
+    });
 });
 
 it('counts unread from the read pointer and ignores my own messages', function () {
@@ -76,7 +93,7 @@ it('marks my messages read once every other participant has read them', function
     say($dm, $me, 'not yet');
     $dm->participants()->updateExistingPivot($other->id, ['last_read_message_id' => $seen->id]);
 
-    $this->actingAs($me)->get('/')->assertInertia(fn ($page) => $page
+    $this->actingAs($me)->get("/c/{$dm->id}")->assertInertia(fn ($page) => $page
         ->where('messages.0.delivery', 'read')
         ->where('messages.1.delivery', 'sent'));
 });

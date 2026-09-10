@@ -37,6 +37,8 @@
         --surface: oklch(0.275 0.009 258);
         --surface-2: oklch(0.3 0.01 258);
         --line: oklch(0.372 0.011 258);
+        --quote: oklch(0.345 0.011 258);
+        --quote-on-fill: oklch(0.505 0.018 258);
         --control: oklch(0.56 0.013 258);
 
         --ink: oklch(0.845 0.008 258);
@@ -101,6 +103,8 @@
     --color-surface: var(--surface);
     --color-surface-2: var(--surface-2);
     --color-line: var(--line);
+    --color-quote: var(--quote);
+    --color-quote-on-fill: var(--quote-on-fill);
     --color-control: var(--control);
     --color-ink: var(--ink);
     --color-ink-soft: var(--ink-soft);

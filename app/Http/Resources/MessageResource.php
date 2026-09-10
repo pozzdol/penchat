@@ -39,6 +39,15 @@ class MessageResource extends JsonResource
             // The tombstone. Deleting nulls the body on the way out, so there
             // is nothing here to leak even if a client ignored this flag.
             'deleted_at' => $this->deleted_at?->toIso8601String(),
+            // The quoted words are this row's own frozen copy; the author and
+            // the tombstone state come from the original, which always exists
+            // because deleting a message never removes it.
+            'reply_to' => $this->reply_to_message_id === null ? null : [
+                'id' => $this->reply_to_message_id,
+                'author' => $this->replyTo?->author?->name,
+                'body' => $this->reply_to_body,
+                'deleted' => $this->replyTo?->isDeleted() ?? false,
+            ],
             'attachments' => AttachmentResource::collection($this->attachments),
             'delivery' => match (true) {
                 strcmp($this->id, $this->readPointer) <= 0 => 'read',

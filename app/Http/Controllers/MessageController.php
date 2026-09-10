@@ -8,10 +8,12 @@ use App\Http\Requests\StoreMessageRequest;
 use App\Http\Requests\UpdateMessageRequest;
 use App\Models\Conversation;
 use App\Models\Message;
+use App\Models\User;
 use App\Support\SpamGuard;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 class MessageController extends Controller
 {
@@ -29,10 +31,16 @@ class MessageController extends Controller
         // Before the write, so a refused message leaves no row behind.
         SpamGuard::check($user);
 
-        $message = DB::transaction(function () use ($request, $conversation, $user) {
+        $quoted = $this->quotable($request->validated('reply_to_message_id'), $conversation, $user);
+
+        $message = DB::transaction(function () use ($request, $conversation, $user, $quoted) {
             $message = $conversation->messages()->create([
                 'user_id' => $user->id,
                 'body' => $request->validated('body'),
+                'reply_to_message_id' => $quoted?->id,
+                // Snapshotted here, by the server, from a message this sender
+                // was allowed to read. The client sends an id and never text.
+                'reply_to_body' => $quoted?->body,
             ]);
 
             // You have plainly seen what you just replied to, and just as
@@ -107,6 +115,51 @@ class MessageController extends Controller
         // Not broadcast: this changed one person's copy, and that person is
         // the one holding the response.
         return back();
+    }
+
+    /**
+     * The message being quoted, or null — and the only gate on it.
+     *
+     * The client hands over an id and the server copies the words, so an
+     * unchecked id is a way to have the server read a message out of a
+     * conversation the sender is not in and paste it into one they are. The
+     * three conditions below are exactly the ones that decide whether they
+     * could have seen it in the first place: same conversation, above their
+     * cleared pointer, and not one they hid.
+     *
+     * An id that fails any of them is refused rather than silently dropped —
+     * quietly sending the message without its quote would look like a bug to
+     * the sender and hide a probe from everyone else.
+     *
+     * @throws ValidationException
+     */
+    private function quotable(?string $id, Conversation $conversation, User $user): ?Message
+    {
+        if ($id === null) {
+            return null;
+        }
+
+        $cleared = (string) ($conversation->participants()
+            ->whereKey($user->id)
+            ->first()?->pivot?->cleared_up_to_message_id ?? '');
+
+        $quoted = $conversation->messages()
+            ->whereKey($id)
+            ->where('id', '>', $cleared)
+            ->whereNotExists(fn ($q) => $q
+                ->select(DB::raw(1))
+                ->from('message_user_deletions as d')
+                ->whereColumn('d.message_id', 'messages.id')
+                ->where('d.user_id', $user->id))
+            ->first();
+
+        if (! $quoted) {
+            throw ValidationException::withMessages([
+                'reply_to_message_id' => 'That message is not part of this conversation.',
+            ]);
+        }
+
+        return $quoted;
     }
 
     /**

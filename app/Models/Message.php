@@ -13,7 +13,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 #[UsePolicy(MessagePolicy::class)]
-#[Fillable(['conversation_id', 'user_id', 'body', 'created_at', 'edited_at', 'deleted_at'])]
+#[Fillable(['conversation_id', 'user_id', 'body', 'reply_to_message_id', 'reply_to_body', 'created_at', 'edited_at', 'deleted_at'])]
 class Message extends Model
 {
     /** @use HasFactory<MessageFactory> */
@@ -37,6 +37,9 @@ class Message extends Model
             // Nothing queries `body` in SQL — search runs in the browser — so
             // making it opaque to Postgres costs nothing here.
             'body' => 'encrypted',
+            // A quote is message content too. If `body` has to be unreadable
+            // in a leaked dump, so does the copy of it sitting in a reply.
+            'reply_to_body' => 'encrypted',
             'created_at' => 'datetime',
             'edited_at' => 'datetime',
             'deleted_at' => 'datetime',
@@ -58,6 +61,18 @@ class Message extends Model
     {
         return ! $this->isDeleted()
             && $this->created_at->gt(now()->subMinutes(self::EDIT_WINDOW_MINUTES));
+    }
+
+    /**
+     * The message this one quotes, if any.
+     *
+     * Only ever read for the original author's name and for whether it has
+     * since been deleted — the quoted *words* live on this row, frozen at the
+     * moment reply was pressed.
+     */
+    public function replyTo(): BelongsTo
+    {
+        return $this->belongsTo(self::class, 'reply_to_message_id');
     }
 
     public function conversation(): BelongsTo

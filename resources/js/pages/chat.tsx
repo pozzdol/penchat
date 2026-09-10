@@ -8,8 +8,8 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import { useRealtime } from '@/hooks/use-realtime';
 import { buildThread, conversationTitle } from '@/lib/chat';
 import { cn } from '@/lib/utils';
-import type { ChatPageProps, Message } from '@/types';
-import { Head, router, usePage } from '@inertiajs/react';
+import type { ChatPageProps, Message, MessageQuote } from '@/types';
+import { Head, router } from '@inertiajs/react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 /** A message typed here but not yet acknowledged by the server. */
@@ -20,6 +20,8 @@ interface Unsent {
     body: string;
     created_at: string;
     failed: boolean;
+    /** Carried so the optimistic bubble shows its quote too. */
+    reply_to: MessageQuote | null;
 }
 
 /**
@@ -38,23 +40,11 @@ export default function Chat({
     active_conversation_id,
     messages,
 }: ChatPageProps) {
-    /**
-     * Whether a conversation was actually *asked for*, as opposed to the one
-     * the server picks to fill the third pane at `/`.
-     *
-     * The two are not the same and only mobile notices. On a phone there is
-     * one pane, so "the server chose a conversation for you" and "you opened
-     * a conversation" have to be told apart — otherwise the list is
-     * unreachable at `/` and Back is a no-op, because going home simply
-     * re-selects the same chat. On md and up both panes are visible and this
-     * makes no difference at all.
-     */
-    const inRoom = usePage().url.startsWith('/c/');
-
     const [unsent, setUnsent] = useState<Unsent[]>([]);
     const [detailsOpen, setDetailsOpen] = useState(false);
     const [editing, setEditing] = useState<{ id: string; body: string } | null>(null);
     const [notice, setNotice] = useState<string | null>(null);
+    const [replying, setReplying] = useState<{ id: string; author: string; body: string } | null>(null);
     const keyRef = useRef(0);
 
     const active = useMemo(
@@ -99,6 +89,7 @@ export default function Chat({
                 created_at: u.created_at,
                 edited_at: null,
                 deleted_at: null,
+                reply_to: u.reply_to,
                 attachments: [],
                 delivery: u.failed ? 'failed' : 'pending',
             }));
@@ -138,13 +129,13 @@ export default function Chat({
      */
     const queueRef = useRef<Promise<void>>(Promise.resolve());
 
-    const post = useCallback((conversationId: string, key: string, body: string) => {
+    const post = useCallback((conversationId: string, key: string, body: string, replyTo: string | null) => {
         queueRef.current = queueRef.current.then(
             () =>
                 new Promise<void>((resolve) => {
                     router.post(
                         `/conversations/${conversationId}/messages`,
-                        { body },
+                        { body, reply_to_message_id: replyTo },
                         {
                             async: true,
                             // The sidebar changes on every send, so it comes back too.
@@ -175,6 +166,9 @@ export default function Chat({
         if (!active) return;
 
         const id = `temp:${++keyRef.current}`;
+        const quote = replying
+            ? { id: replying.id, author: replying.author, body: replying.body, deleted: false }
+            : null;
 
         setUnsent((prev) => [
             ...prev,
@@ -184,10 +178,12 @@ export default function Chat({
                 body,
                 created_at: new Date().toISOString(),
                 failed: false,
+                reply_to: quote,
             },
         ]);
 
-        post(active.id, id, body);
+        post(active.id, id, body, replying?.id ?? null);
+        setReplying(null);
     };
 
     const retry = (messageId: string) => {
@@ -195,7 +191,7 @@ export default function Chat({
         if (!entry) return;
 
         setUnsent((prev) => prev.map((u) => (u.id === messageId ? { ...u, failed: false } : u)));
-        post(entry.conversation_id, entry.id, entry.body);
+        post(entry.conversation_id, entry.id, entry.body, entry.reply_to?.id ?? null);
     };
 
     /**
@@ -210,6 +206,20 @@ export default function Chat({
         preserveState: true,
     });
 
+    const reply = (message: Message) => {
+        // One at a time: the composer cannot be rewriting your words and
+        // answering someone else's at once.
+        setEditing(null);
+        setReplying({
+            id: message.id,
+            author:
+                message.user_id === current_user.id
+                    ? 'yourself'
+                    : (active?.participants.find((p) => p.id === message.user_id)?.name ?? 'Unknown'),
+            body: message.body ?? 'Attachment',
+        });
+    };
+
     const saveEdit = (body: string) => {
         if (!editing) return;
 
@@ -218,8 +228,10 @@ export default function Chat({
     };
 
     const remove = (message: Message, everyone: boolean) => {
-        // Rewriting a message that is about to disappear helps nobody.
+        // Rewriting or quoting a message that is about to disappear helps
+        // nobody.
         if (editing?.id === message.id) setEditing(null);
+        if (replying?.id === message.id) setReplying(null);
 
         router.delete(
             everyone ? `/messages/${message.id}` : `/messages/${message.id}/mine`,
@@ -300,6 +312,7 @@ export default function Chat({
     const select = (id: string) => {
         setDetailsOpen(false);
         setEditing(null);
+        setReplying(null);
 
         if (id === active_conversation_id) return;
 
@@ -322,13 +335,13 @@ export default function Chat({
                     currentUser={current_user}
                     activeId={active_conversation_id}
                     onSelect={select}
-                    className={cn(inRoom && 'max-md:hidden')}
+                    className={cn(active && 'max-md:hidden')}
                 />
 
                 <main
                     className={cn(
                         'flex min-w-0 flex-1 flex-col bg-page',
-                        !inRoom && 'max-md:hidden',
+                        !active && 'max-md:hidden',
                     )}
                 >
                     {liveActive ? (
@@ -348,14 +361,19 @@ export default function Chat({
                                 onRetry={retry}
                                 onEdit={(m) => setEditing({ id: m.id, body: m.body ?? '' })}
                                 onDelete={remove}
+                                onReply={reply}
+                                onClose={() => router.get('/')}
+                                onInfo={() => setDetailsOpen(true)}
                             />
                             <Composer
                                 title={conversationTitle(liveActive, current_user.id)}
                                 editing={editing}
                                 notice={notice}
+                                replying={replying}
                                 onSend={send}
                                 onEdit={saveEdit}
                                 onCancelEdit={() => setEditing(null)}
+                                onCancelReply={() => setReplying(null)}
                                 onTyping={onTyping}
                             />
                         </>
@@ -366,7 +384,7 @@ export default function Chat({
 
                 {/* Only over the list. A conversation gets the whole screen,
                     which is the point of the change. */}
-                {inRoom ? null : <FloatingNav active="chats" />}
+                {active ? null : <FloatingNav active="chats" />}
 
                 {liveActive && detailsOpen ? (
                     <DetailsPanel

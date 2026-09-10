@@ -1,6 +1,7 @@
 import { DeliveryMark, deliveryLabel } from '@/components/chat/delivery-mark';
 import { PresenceAvatar } from '@/components/chat/presence-avatar';
 import { BrandLockup } from '@/components/chat/brand';
+import { Quote } from '@/components/chat/quote';
 import { ComposeMenu } from '@/components/chat/compose-menu';
 import { Button } from '@/components/ui/button';
 import {
@@ -18,8 +19,9 @@ import {
 import { buildThread, conversationTitle, counterpart, time, type ThreadItem } from '@/lib/chat';
 import { cn } from '@/lib/utils';
 import { EDIT_WINDOW_MS, type Conversation, type Message, type Participant } from '@/types';
-import { ChevronDown, Copy, EyeOff, Pencil, Trash2, type LucideIcon } from 'lucide-react';
-import { useEffect, useRef } from 'react';
+import { ChevronDown, Copy, CornerUpLeft, EyeOff, Info, Pencil, Trash2, X, type LucideIcon } from 'lucide-react';
+import { useSwipeReply } from '@/hooks/use-swipe-reply';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 
 interface Props {
     conversation: Conversation;
@@ -31,11 +33,52 @@ interface Props {
     onEdit: (message: Message) => void;
     /** `everyone: false` hides it for this reader only. */
     onDelete: (message: Message, everyone: boolean) => void;
+    onReply: (message: Message) => void;
+    onClose: () => void;
+    onInfo: () => void;
 }
 
-export function Thread({ conversation, items, currentUser, typing, onRetry, onEdit, onDelete }: Props) {
+export function Thread({
+    conversation,
+    items,
+    currentUser,
+    typing,
+    onRetry,
+    onEdit,
+    onDelete,
+    onReply,
+    onClose,
+    onInfo,
+}: Props) {
     const endRef = useRef<HTMLDivElement>(null);
     const lastId = items.at(-1)?.message.id;
+
+    /**
+     * Clicking a quote goes back to what it quotes — but only when that
+     * message is actually on screen. Beyond the loaded window the honest
+     * answer is a quote you cannot click, rather than a button that
+     * sometimes does nothing.
+     */
+    const loaded = useMemo(() => new Set(items.map((i) => i.message.id)), [items]);
+
+    const jump = useCallback(
+        (id: string) =>
+            loaded.has(id)
+                ? () => {
+                      const el = document.getElementById(`msg-${id}`);
+                      if (!el) return;
+
+                      const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+                      el.scrollIntoView({ block: 'center', behavior: still ? 'auto' : 'smooth' });
+
+                      // Arriving silently in the middle of a thread leaves you
+                      // hunting for what moved.
+                      el.classList.add('rounded-lg', 'bg-info/12');
+                      setTimeout(() => el.classList.remove('rounded-lg', 'bg-info/12'), 900);
+                  }
+                : undefined,
+        [loaded],
+    );
 
     /* Pin to the newest message. Keyed on the last id rather than the array so
        a re-render that changes nothing does not yank a reader out of history. */
@@ -44,6 +87,11 @@ export function Thread({ conversation, items, currentUser, typing, onRetry, onEd
     }, [lastId]);
 
     return (
+        <ContextMenu>
+        {/* On the scroll region, so right-clicking anywhere that is not a
+            bubble lands here. A bubble has its own trigger, and nested
+            triggers resolve innermost-first — which is what we want. */}
+        <ContextMenuTrigger asChild>
         <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain">
             <div className="mx-auto flex w-full max-w-[110rem] flex-1 flex-col justify-end gap-0.5 px-4 py-6 md:px-6">
                 {items.map((item) => (
@@ -55,6 +103,8 @@ export function Thread({ conversation, items, currentUser, typing, onRetry, onEd
                         onRetry={onRetry}
                         onEdit={onEdit}
                         onDelete={onDelete}
+                        onReply={onReply}
+                        onJump={jump}
                     />
                 ))}
 
@@ -63,6 +113,19 @@ export function Thread({ conversation, items, currentUser, typing, onRetry, onEd
                 <div ref={endRef} />
             </div>
         </div>
+        </ContextMenuTrigger>
+
+        <ContextMenuContent>
+            <ContextMenuItem onSelect={onInfo}>
+                <Info aria-hidden />
+                Conversation info
+            </ContextMenuItem>
+            <ContextMenuItem onSelect={onClose}>
+                <X aria-hidden />
+                Close room
+            </ContextMenuItem>
+        </ContextMenuContent>
+        </ContextMenu>
     );
 }
 
@@ -91,8 +154,18 @@ function messageActions(
     deleted: boolean,
     onEdit: (message: Message) => void,
     onDelete: (message: Message, everyone: boolean) => void,
+    onReply: (message: Message) => void,
 ): Action[] {
     const actions: Action[] = [];
+
+    if (!deleted) {
+        actions.push({
+            key: 'reply',
+            icon: CornerUpLeft,
+            label: 'Reply',
+            run: () => onReply(message),
+        });
+    }
 
     if (message.body) {
         actions.push({
@@ -141,6 +214,8 @@ function MessageRow({
     onRetry,
     onEdit,
     onDelete,
+    onReply,
+    onJump,
 }: {
     item: ThreadItem;
     conversation: Conversation;
@@ -148,6 +223,8 @@ function MessageRow({
     onRetry: (messageId: string) => void;
     onEdit: (message: Message) => void;
     onDelete: (message: Message, everyone: boolean) => void;
+    onReply: (message: Message) => void;
+    onJump: (id: string) => (() => void) | undefined;
 }) {
     const { message, author, startsRun, endsRun, dayBreak } = item;
     const mine = message.user_id === currentUser.id;
@@ -160,18 +237,44 @@ function MessageRow({
         message.delivery === 'sent' ||
         message.delivery === 'delivered' ||
         message.delivery === 'read';
-    const actions = messageActions(message, conversation, mine, deleted, onEdit, onDelete);
+    const actions = messageActions(message, conversation, mine, deleted, onEdit, onDelete, onReply);
+
+    // Touch only; a mouse already has the menu, and a drag there would make
+    // selecting text inside a bubble impossible.
+    const swipe = useSwipeReply(() => onReply(message), settled && !deleted);
 
     return (
         <>
             {dayBreak ? <DayDivider label={dayBreak} /> : null}
 
+            <div id={`msg-${message.id}`} className="relative transition-colors duration-300">
+                {/* Sits behind the row and is uncovered by the drag, so the
+                    gesture explains itself the first time rather than being
+                    something you have to already know. */}
+                {swipe.offset > 0 ? (
+                    <span
+                        aria-hidden
+                        className={cn(
+                            'absolute inset-y-0 start-0 flex items-center ps-2',
+                            swipe.armed ? 'text-ink' : 'text-ink-mute',
+                        )}
+                        style={{ opacity: swipe.progress }}
+                    >
+                        <CornerUpLeft className="size-5" />
+                    </span>
+                ) : null}
+
             <div
+                {...swipe.handlers}
                 className={cn(
-                    'group/msg flex items-end gap-2',
+                    'group/msg flex touch-pan-y items-end gap-2',
                     mine ? 'flex-row-reverse' : 'flex-row',
                     startsRun && !dayBreak && 'mt-3',
                 )}
+                style={{
+                    transform: swipe.offset ? `translateX(${swipe.offset}px)` : undefined,
+                    transition: swipe.offset ? undefined : 'transform 160ms ease-out',
+                }}
             >
                 {/* The avatar column is held open for every message in a run so
                     the bubbles stay on one axis; only the first row fills it. */}
@@ -213,6 +316,14 @@ function MessageRow({
                             deleted && 'border border-dashed border-line bg-transparent text-ink-mute',
                         )}
                     >
+                        {message.reply_to && !deleted ? (
+                            <Quote
+                                quote={message.reply_to}
+                                mine={mine}
+                                onJump={onJump(message.reply_to.id)}
+                            />
+                        ) : null}
+
                         {deleted ? (
                             <p className="italic">This message was deleted</p>
                         ) : (
@@ -267,6 +378,7 @@ function MessageRow({
                 </div>
 
                 {settled ? <MessageMenu actions={actions} /> : null}
+            </div>
             </div>
         </>
     );

@@ -286,6 +286,23 @@ a row per message per reader.
   boundary; `Conversation::createGroup()` stays an unguarded primitive so
   seeders and tests are unaffected.
 
+## Replies
+
+- The client sends an **id**; the server copies the words. That makes an
+  unchecked id a way to have the server read a message out of a conversation
+  the sender cannot see and paste it into one they can, so
+  `MessageController::quotable()` requires the target to be in the same
+  conversation, above the sender's cleared pointer, and not one they hid —
+  the same three conditions that decide whether they could have read it.
+- `reply_to_body` is a **snapshot**, and `reply_to_body` is encrypted for the
+  same reason `body` is. Editing an original must not rewrite the words inside
+  somebody else's message after the fact.
+- The author is not snapshotted. A message row is never removed — deleting
+  leaves a tombstone — so the original is always there to join for a name.
+- Quoting a message someone cleared or hid puts that text back on their
+  screen. That is **correct**: the quoter chose to repeat it, and it is their
+  new message. It looks like the Phase 2 leak and is not one.
+
 ## Backend conventions
 
 - Every conversation route authorizes participation via `ConversationPolicy`.
@@ -343,10 +360,11 @@ a row per message per reader.
   selection is a two-pane idea: every selected style in the conversation list
   is `md:`-prefixed, because a highlighted row on a phone points at something
   that is not on screen.
-- **`inRoom` is not `active`.** At `/` the server picks a conversation to fill
-  the third pane; that is not the same as someone opening one. `chat.tsx`
-  reads `usePage().url` to tell them apart. Conflating them makes the list
-  unreachable on mobile and turns Back into a no-op.
+- **`/` opens nothing.** `ChatController` used to fall back to the first
+  conversation so the third pane was never blank, and the props then claimed a
+  room was open when nobody had opened one: mobile could not reach the list,
+  Back did nothing, and Close room reopened what it closed. `ThreadEmpty` is
+  the answer to an empty third pane. Do not reinstate the fallback.
 - Menu items are defined once as data and rendered by both the hover dropdown
   and the right-click `ContextMenu`. Writing the items twice is how the two
   drift apart. Taking over the browser's context menu also means replacing
