@@ -134,6 +134,7 @@ composer run dev          # serve + vite + queue + reverb concurrently
 php artisan test          # Pest
 ./vendor/bin/pint         # PHP formatter - run before finishing PHP work
 bun run build             # production assets
+php artisan push:vapid    # Web Push keys - once, ever; see the push section
 ```
 
 Never run `php artisan reverb:start` or `bun run dev` as a blocking
@@ -155,6 +156,7 @@ Not every interaction goes over the WebSocket. Follow this table exactly:
 | Typing indicator | client event (`whisper`)     | **no**    |
 | Mark as read     | HTTP PATCH -> broadcast      | yes       |
 | File upload      | HTTP POST (multipart)        | yes       |
+| Notify when away | Web Push, after the response | yes       |
 
 The WebSocket is for *receiving* only. Writes always go through normal HTTP
 so validation, authorization, and DB transactions stay in controllers.
@@ -166,7 +168,7 @@ a queued job.
 
 ## Data model
 
-**Five tables.** Do not add more without asking.
+**Six tables.** Do not add more without asking.
 
 ```
 users               id (ULID), name, username (unique, lowercase), email (unique),
@@ -181,6 +183,8 @@ messages            id (ULID), conversation_id, user_id, body?, created_at,
                     edited_at?, deleted_at?
 attachments         id (ULID), message_id, path, original_name, mime, size
 message_user_deletions  message_id, user_id                                     # the fifth
+push_subscriptions  id (ULID), user_id, endpoint (unique), public_key, auth_token,
+                    user_agent?, last_used_at?                                  # the sixth
 ```
 
 ### Load-bearing decisions - do not undo
@@ -302,6 +306,50 @@ a row per message per reader.
 - Quoting a message someone cleared or hid puts that text back on their
   screen. That is **correct**: the quoter chose to repeat it, and it is their
   new message. It looks like the Phase 2 leak and is not one.
+
+## Push notifications
+
+Web Push (VAPID), self-hosted. No FCM, no OneSignal — the payload would then
+pass through a third party in an app that encrypts `messages.body` at rest,
+and FCM's web support *is* this same standard with Google holding the keys, so
+it would buy nothing.
+
+- **Two halves, deliberately split.** `App\Support\PushNotifier` decides who
+  hears about a message and writes the line they read;
+  `App\Support\WebPushSender` signs and delivers it. A native app later brings
+  a different transport (APNs, FCM) but the same recipients and the same
+  sentence — the split is what stops the second one being rewritten with the
+  first. There is deliberately **no driver abstraction** until a second
+  transport actually exists.
+- **New messages only**, and for the same reason `MessageSent` carries the only
+  payload on the wire. A push is one payload for one device with no server left
+  in the loop, so an edit or a tombstone would walk straight past
+  `cleared_up_to_message_id` and `message_user_deletions`. Route everything else
+  through `ConversationTouched` as before.
+- **`afterResponse()`, never the queue.** `dispatch(fn () => ...)->afterResponse()`
+  runs in the same process once the response has left, so nothing has to be
+  running for it to happen — a queued push would be swallowed in silence
+  exactly as a queued sign-in code would.
+- **The server never decides who is online.** Presence is not persisted, so it
+  cannot. `public/sw.js` suppresses a notification when a *focused* window is
+  already on that conversation, and only then: browsers waive the
+  "a push must show something" rule when the app has a visible window, and
+  punish a silent push otherwise.
+- **`public/sw.js` is a static file, outside Vite.** A worker's scope is the
+  directory it is served from, so it needs a stable root URL; a hashed filename
+  would break the registration on every deploy.
+- **The payload's fields and the worker's reads must match exactly**, both ways.
+  `tests/Feature/RealtimeContractTest.php` asserts it — a field nobody reads is
+  weight inside a payload capped at a few kilobytes, and a field nobody sends is
+  `undefined` on someone's lock screen.
+- **The VAPID public key travels as an Inertia shared prop, not `VITE_`.**
+  Compiled into the bundle it would need `bun run build` after every rotation.
+- **`php artisan push:vapid` is run once, ever.** New keys silently invalidate
+  every stored subscription. Back the private key up where `APP_KEY` is backed
+  up.
+- **iOS only delivers to an installed PWA** (16.4+), hence
+  `public/manifest.webmanifest`, the PNG icons, and the Add to Home Screen hint
+  — Safari will not push to a page in a tab, and says so nowhere.
 
 ## Backend conventions
 

@@ -1,5 +1,8 @@
 <?php
 
+use App\Models\Conversation;
+use App\Models\User;
+use App\Support\PushNotifier;
 use Illuminate\Broadcasting\InteractsWithSockets;
 use Illuminate\Contracts\Broadcasting\ShouldBroadcast;
 use Illuminate\Contracts\Broadcasting\ShouldBroadcastNow;
@@ -148,4 +151,77 @@ it('listens for the whisper under its prefixed name', function () {
     expect($client)
         ->toContain("'.client-typing'")
         ->and($client)->toContain("whisper('typing'");
+});
+
+/*
+|--------------------------------------------------------------------------
+| Push
+|--------------------------------------------------------------------------
+|
+| Same failure shape as everything above, one layer further out. A service
+| worker that registers and then listens for nothing is indistinguishable
+| from a working one until a message arrives and no phone lights up.
+|
+*/
+
+/** The file the client registers has to exist, and has to do the two jobs. */
+it('ships a service worker that listens for a push and for a tap', function () {
+    $worker = public_path('sw.js');
+
+    expect(file_exists($worker))->toBeTrue();
+
+    $code = file_get_contents($worker);
+
+    expect($code)
+        ->toContain("addEventListener('push'")
+        ->and($code)->toContain("addEventListener('notificationclick'")
+        // Without this the browser has permission and still shows nothing.
+        ->and($code)->toContain('showNotification');
+});
+
+/** A registration pointing at a file that is not there fails in silence. */
+it('registers the worker at the path it is served from', function () {
+    $client = file_get_contents(resource_path('js/hooks/use-push.ts'));
+
+    preg_match("/const WORKER_URL = '([^']+)'/", $client, $matches);
+
+    expect($matches[1] ?? null)->not->toBeNull()
+        ->and(file_exists(public_path(ltrim($matches[1], '/'))))->toBeTrue();
+});
+
+/**
+ * The cross-language one, and the same bargain the event names strike above.
+ * A field the worker reads and the server never sends is `undefined` on
+ * somebody's lock screen; a field the server sends and nobody reads is weight
+ * inside a payload the push services cap at a few kilobytes.
+ */
+it('sends exactly the payload fields the service worker reads', function () {
+    [$author, $reader] = User::factory()->count(2)->create();
+    $conversation = Conversation::findOrCreateDirect($author, $reader);
+    $message = say($conversation, $author, 'hello');
+
+    $build = new ReflectionMethod(PushNotifier::class, 'payload');
+    $sent = array_keys($build->invoke(null, $message));
+
+    preg_match_all('/\bpayload\.([a-z_]+)/', file_get_contents(public_path('sw.js')), $matches);
+    $read = array_values(array_unique($matches[1]));
+
+    expect($read)->not->toBeEmpty()
+        ->and($read)->toEqualCanonicalizing($sent);
+});
+
+/**
+ * `pushManager.subscribe()` cannot be called without the application server
+ * key, and the client reads it from the shared props rather than the bundle
+ * so that rotating it does not require a rebuild.
+ */
+it('shares the vapid public key under the name the client reads', function () {
+    config(['services.webpush.public_key' => 'test-key']);
+
+    $this->actingAs(User::factory()->create())
+        ->get('/')
+        ->assertInertia(fn ($page) => $page->where('vapidPublicKey', 'test-key'));
+
+    expect(file_get_contents(resource_path('js/hooks/use-push.ts')))
+        ->toContain('vapidPublicKey');
 });

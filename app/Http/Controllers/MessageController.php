@@ -9,6 +9,7 @@ use App\Http\Requests\UpdateMessageRequest;
 use App\Models\Conversation;
 use App\Models\Message;
 use App\Models\User;
+use App\Support\PushNotifier;
 use App\Support\SpamGuard;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -176,11 +177,20 @@ class MessageController extends Controller
      * Inertia response, and re-delivering it would race their own optimistic
      * bubble. It is safe if the socket id never arrives — the client upserts
      * by id — but it is not free, so the client sends the header explicitly.
+     *
+     * The push is third and deliberately last. `afterResponse()` runs it in
+     * this same process once the response has left, so the sender waits for
+     * none of it, and — unlike a queued job — nothing has to be running for it
+     * to happen. `QUEUE_CONNECTION` is `database` with no worker outside
+     * `composer run dev`, so a queued push would be swallowed exactly the way
+     * a queued sign-in code would be.
      */
     private function announce(Conversation $conversation, Message $message): void
     {
         broadcast(new MessageSent($message))->toOthers();
 
         ConversationTouched::dispatch($conversation);
+
+        dispatch(fn () => PushNotifier::messageSent($message))->afterResponse();
     }
 }

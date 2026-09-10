@@ -113,6 +113,17 @@ export interface Conversation {
     can: ConversationAbilities;
 }
 
+/**
+ * Shared with every page by `HandleInertiaRequests::share()`.
+ *
+ * `vapidPublicKey` is null when Web Push has no keys configured, which is how
+ * the client knows to render no bell rather than one that cannot work.
+ */
+export interface SharedProps {
+    vapidPublicKey: string | null;
+    [key: string]: unknown;
+}
+
 export interface ChatPageProps {
     current_user: Participant;
     conversations: Conversation[];

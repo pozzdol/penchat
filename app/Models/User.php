@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Concerns\HasUlids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Str;
@@ -80,6 +81,15 @@ class User extends Authenticatable
         return $this->conversations()
             ->whereHas('participants', fn ($q) => $q->whereKey($other->id))
             ->exists();
+    }
+
+    /**
+     * Every browser this person told to interrupt them. One row per device —
+     * a laptop and a phone are two endpoints with two key pairs.
+     */
+    public function pushSubscriptions(): HasMany
+    {
+        return $this->hasMany(PushSubscription::class);
     }
 
     public function conversations(): BelongsToMany

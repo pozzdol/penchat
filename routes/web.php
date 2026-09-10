@@ -8,6 +8,7 @@ use App\Http\Controllers\ConversationMemberController;
 use App\Http\Controllers\ConversationReadController;
 use App\Http\Controllers\DeliveryController;
 use App\Http\Controllers\MessageController;
+use App\Http\Controllers\PushSubscriptionController;
 use Illuminate\Support\Facades\Route;
 
 Route::middleware('guest')->group(function () {
@@ -79,6 +80,16 @@ Route::middleware('auth')->group(function () {
     Route::delete('/conversations/{conversation}', [ConversationController::class, 'destroy'])
         ->name('conversations.destroy')
         ->can('deleteChat', 'conversation');
+
+    /*
+     * Managing your own devices, deliberately outside `not-suspended`. A
+     * suspension is read-only: it stops you putting content in front of other
+     * people, and a notification is content arriving *at* you.
+     */
+    Route::post('/push/subscriptions', [PushSubscriptionController::class, 'store'])
+        ->name('push.store');
+    Route::delete('/push/subscriptions', [PushSubscriptionController::class, 'destroy'])
+        ->name('push.destroy');
 
     Route::delete('/messages/{message}/mine', [MessageController::class, 'destroyForMe'])
         ->name('messages.mine')

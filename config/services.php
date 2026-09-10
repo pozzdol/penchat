@@ -28,6 +28,19 @@ return [
         'region' => env('AWS_DEFAULT_REGION', 'us-east-1'),
     ],
 
+    /*
+     * Web Push. `subject` identifies the sender to the push service and must
+     * be a mailto: or https: URL — the services reject a VAPID token without
+     * one. The public key also reaches the browser, but through Inertia shared
+     * props rather than a VITE_ variable: baking it into the bundle would mean
+     * a key rotation needs `bun run build` before it takes effect.
+     */
+    'webpush' => [
+        'public_key' => env('VAPID_PUBLIC_KEY'),
+        'private_key' => env('VAPID_PRIVATE_KEY'),
+        'subject' => env('VAPID_SUBJECT', env('APP_URL', 'http://localhost')),
+    ],
+
     'slack' => [
         'notifications' => [
             'bot_user_oauth_token' => env('SLACK_BOT_USER_OAUTH_TOKEN'),
