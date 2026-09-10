@@ -27,6 +27,11 @@
         <env name="DB_DATABASE" value=":memory:"/>
         <env name="DB_URL" value=""/>
         <env name="MAIL_MAILER" value="array"/>
+        <!-- Same reason MAIL_MAILER is pinned: a test must never reach a push
+             service. Empty keys make WebPushSender a no-op, and the two tests
+             that need real ones set them with config() themselves. -->
+        <env name="VAPID_PUBLIC_KEY" value=""/>
+        <env name="VAPID_PRIVATE_KEY" value=""/>
         <env name="QUEUE_CONNECTION" value="sync"/>
         <env name="SESSION_DRIVER" value="array"/>
         <env name="PULSE_ENABLED" value="false"/>
