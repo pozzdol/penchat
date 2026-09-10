@@ -48,6 +48,11 @@
         --fill-ink: oklch(0.958 0.004 258);
         --fill-ink-soft: oklch(0.86 0.01 258);
 
+        --rail: oklch(0.345 0.014 258);
+        --rail-ink: oklch(0.75 0.012 258);
+        --rail-ink-on: oklch(0.965 0.003 258);
+        --rail-bad: oklch(0.7 0.14 25);
+
         --ok: oklch(0.66 0.11 152);
         --info: oklch(0.672 0.105 254);
         --warn: oklch(0.678 0.105 75);

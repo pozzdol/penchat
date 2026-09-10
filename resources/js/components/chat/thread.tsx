@@ -1,11 +1,24 @@
 import { DeliveryMark, deliveryLabel } from '@/components/chat/delivery-mark';
 import { PresenceAvatar } from '@/components/chat/presence-avatar';
 import { BrandLockup } from '@/components/chat/brand';
-import { NewChatDialog } from '@/components/chat/new-chat-dialog';
+import { ComposeMenu } from '@/components/chat/compose-menu';
 import { Button } from '@/components/ui/button';
+import {
+    ContextMenu,
+    ContextMenuContent,
+    ContextMenuItem,
+    ContextMenuTrigger,
+} from '@/components/ui/context-menu';
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { buildThread, conversationTitle, counterpart, time, type ThreadItem } from '@/lib/chat';
 import { cn } from '@/lib/utils';
-import type { Conversation, Participant } from '@/types';
+import { EDIT_WINDOW_MS, type Conversation, type Message, type Participant } from '@/types';
+import { ChevronDown, Copy, EyeOff, Pencil, Trash2, type LucideIcon } from 'lucide-react';
 import { useEffect, useRef } from 'react';
 
 interface Props {
@@ -15,9 +28,12 @@ interface Props {
     /** Names of people currently composing. Never persisted — a whisper only. */
     typing: string[];
     onRetry: (messageId: string) => void;
+    onEdit: (message: Message) => void;
+    /** `everyone: false` hides it for this reader only. */
+    onDelete: (message: Message, everyone: boolean) => void;
 }
 
-export function Thread({ conversation, items, currentUser, typing, onRetry }: Props) {
+export function Thread({ conversation, items, currentUser, typing, onRetry, onEdit, onDelete }: Props) {
     const endRef = useRef<HTMLDivElement>(null);
     const lastId = items.at(-1)?.message.id;
 
@@ -37,6 +53,8 @@ export function Thread({ conversation, items, currentUser, typing, onRetry }: Pr
                         conversation={conversation}
                         currentUser={currentUser}
                         onRetry={onRetry}
+                        onEdit={onEdit}
+                        onDelete={onDelete}
                     />
                 ))}
 
@@ -48,21 +66,101 @@ export function Thread({ conversation, items, currentUser, typing, onRetry }: Pr
     );
 }
 
+interface Action {
+    key: string;
+    icon: LucideIcon;
+    label: string;
+    destructive?: boolean;
+    run: () => void;
+}
+
+/**
+ * What this message offers, decided once and rendered by two different
+ * primitives — the hover chevron and the right-click menu. Defining the
+ * items twice is how the two quietly drift apart.
+ *
+ * `Copy text` is here because taking over the right-click menu takes away the
+ * browser's own, and copying a message is the most ordinary thing anyone
+ * wants from it. Removing an affordance while adding a menu would be a net
+ * loss.
+ */
+function messageActions(
+    message: Message,
+    conversation: Conversation,
+    mine: boolean,
+    deleted: boolean,
+    onEdit: (message: Message) => void,
+    onDelete: (message: Message, everyone: boolean) => void,
+): Action[] {
+    const actions: Action[] = [];
+
+    if (message.body) {
+        actions.push({
+            key: 'copy',
+            icon: Copy,
+            label: 'Copy text',
+            run: () => void navigator.clipboard?.writeText(message.body ?? ''),
+        });
+    }
+
+    const editable =
+        mine && !deleted && Date.now() - new Date(message.created_at).getTime() < EDIT_WINDOW_MS;
+
+    if (editable) {
+        actions.push({ key: 'edit', icon: Pencil, label: 'Edit', run: () => onEdit(message) });
+    }
+
+    actions.push({
+        key: 'mine',
+        icon: EyeOff,
+        label: 'Delete for me',
+        run: () => onDelete(message, false),
+    });
+
+    if (!deleted && (mine || conversation.can.delete_any_message)) {
+        actions.push({
+            key: 'everyone',
+            icon: Trash2,
+            label: 'Delete for everyone',
+            destructive: true,
+            run: () => {
+                if (window.confirm('Delete this message for everyone? It cannot be undone.')) {
+                    onDelete(message, true);
+                }
+            },
+        });
+    }
+
+    return actions;
+}
+
 function MessageRow({
     item,
     conversation,
     currentUser,
     onRetry,
+    onEdit,
+    onDelete,
 }: {
     item: ThreadItem;
     conversation: Conversation;
     currentUser: Participant;
     onRetry: (messageId: string) => void;
+    onEdit: (message: Message) => void;
+    onDelete: (message: Message, everyone: boolean) => void;
 }) {
     const { message, author, startsRun, endsRun, dayBreak } = item;
     const mine = message.user_id === currentUser.id;
     const isGroup = conversation.type === 'group';
     const failed = message.delivery === 'failed';
+    const deleted = message.deleted_at !== null;
+    // Nothing the server has not acknowledged can be edited or deleted: there
+    // is no row behind it yet to act on.
+    const settled =
+        message.delivery === 'sent' ||
+        message.delivery === 'delivered' ||
+        message.delivery === 'read';
+    const actions = messageActions(message, conversation, mine, deleted, onEdit, onDelete);
 
     return (
         <>
@@ -70,7 +168,7 @@ function MessageRow({
 
             <div
                 className={cn(
-                    'flex items-end gap-2',
+                    'group/msg flex items-end gap-2',
                     mine ? 'flex-row-reverse' : 'flex-row',
                     startsRun && !dayBreak && 'mt-3',
                 )}
@@ -95,6 +193,8 @@ function MessageRow({
                         </span>
                     ) : null}
 
+                    <ContextMenu>
+                    <ContextMenuTrigger asChild disabled={!settled}>
                     <div
                         className={cn(
                             'rounded-2xl px-3.5 py-2 text-[0.875rem] leading-[1.45]',
@@ -107,12 +207,45 @@ function MessageRow({
                                 : 'border border-line bg-surface text-ink',
                             endsRun && (mine ? 'rounded-ee-md' : 'rounded-es-md'),
                             failed && 'border border-bad',
+                            /* A tombstone keeps the shape and loses the
+                               substance: dashed and unfilled, so the gap is
+                               legible as an absence rather than a message. */
+                            deleted && 'border border-dashed border-line bg-transparent text-ink-mute',
                         )}
                     >
-                        <p className="[overflow-wrap:anywhere] whitespace-pre-wrap">
-                            {message.body}
-                        </p>
+                        {deleted ? (
+                            <p className="italic">This message was deleted</p>
+                        ) : (
+                            <p className="[overflow-wrap:anywhere] whitespace-pre-wrap">
+                                {message.body}
+                                {message.edited_at ? (
+                                    <span
+                                        className={cn(
+                                            'ms-1.5 align-baseline text-[0.6875rem]',
+                                            mine ? 'text-fill-ink-soft' : 'text-ink-mute',
+                                        )}
+                                    >
+                                        edited
+                                    </span>
+                                ) : null}
+                            </p>
+                        )}
                     </div>
+                    </ContextMenuTrigger>
+
+                    <ContextMenuContent>
+                        {actions.map((a) => (
+                            <ContextMenuItem
+                                key={a.key}
+                                variant={a.destructive ? 'destructive' : 'default'}
+                                onSelect={a.run}
+                            >
+                                <a.icon aria-hidden />
+                                {a.label}
+                            </ContextMenuItem>
+                        ))}
+                    </ContextMenuContent>
+                    </ContextMenu>
 
                     {endsRun || failed ? (
                         <span className="flex items-center gap-1.5 px-1 text-[0.6875rem] text-ink-mute">
@@ -132,8 +265,49 @@ function MessageRow({
                         </span>
                     ) : null}
                 </div>
+
+                {settled ? <MessageMenu actions={actions} /> : null}
             </div>
         </>
+    );
+}
+
+/**
+ * Revealed on hover, in a slot the layout always holds open — a control that
+ * appears and reflows the bubble under the cursor is worse than no control.
+ *
+ * The same actions are also on the bubble's right-click menu. This one exists
+ * because right-click is not discoverable and does not exist on touch.
+ */
+function MessageMenu({ actions }: { actions: Action[] }) {
+    return (
+        <DropdownMenu>
+            <DropdownMenuTrigger
+                aria-label="Message actions"
+                className={cn(
+                    'grid size-7 shrink-0 place-items-center rounded-full text-ink-mute',
+                    'opacity-0 transition-opacity duration-(--dur-micro) ease-out',
+                    'group-hover/msg:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100',
+                    'hover:bg-surface-2 hover:text-ink',
+                    'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-info',
+                )}
+            >
+                <ChevronDown className="size-4" aria-hidden />
+            </DropdownMenuTrigger>
+
+            <DropdownMenuContent align="end" className="w-52">
+                {actions.map((a) => (
+                    <DropdownMenuItem
+                        key={a.key}
+                        variant={a.destructive ? 'destructive' : 'default'}
+                        onSelect={a.run}
+                    >
+                        <a.icon aria-hidden />
+                        {a.label}
+                    </DropdownMenuItem>
+                ))}
+            </DropdownMenuContent>
+        </DropdownMenu>
     );
 }
 
@@ -193,13 +367,7 @@ export function ThreadEmpty({ currentUser }: { currentUser: Participant }) {
                 Pick a chat on the left to read it here, or start one with someone’s username.
             </p>
 
-            <NewChatDialog
-                trigger={
-                    <Button type="button" variant="outline" className="h-11">
-                        New chat
-                    </Button>
-                }
-            />
+            <ComposeMenu />
 
             {currentUser.username ? (
                 <p className="text-[0.8125rem] text-ink-mute">

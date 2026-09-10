@@ -1,7 +1,7 @@
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { Paperclip, SendHorizontal } from 'lucide-react';
-import { useRef, useState, type ChangeEvent, type KeyboardEvent } from 'react';
+import { Check, Paperclip, Pencil, SendHorizontal, X } from 'lucide-react';
+import { useEffect, useRef, useState, type ChangeEvent, type KeyboardEvent } from 'react';
 
 const MAX_ROWS_PX = 160;
 
@@ -9,14 +9,58 @@ interface Props {
     /** Conversation title, so the field says what it is actually sending into. */
     title: string;
     disabled?: boolean;
+    /**
+     * The message being rewritten, if any. Editing happens in the composer
+     * rather than in the bubble: one place accepts text in this app, and it is
+     * the one already under the reader's hands.
+     */
+    editing: { id: string; body: string } | null;
+    /**
+     * Why the last send was refused — a rate limit, or a paused account.
+     * Without it a throttled message is just a bubble that failed for no
+     * stated reason, which reads as the app being broken rather than as the
+     * app saying no.
+     */
+    notice: string | null;
     onSend: (body: string) => void;
+    onEdit: (body: string) => void;
+    onCancelEdit: () => void;
     onTyping: () => void;
 }
 
-export function Composer({ title, disabled = false, onSend, onTyping }: Props) {
+export function Composer({
+    title,
+    disabled = false,
+    editing,
+    notice,
+    onSend,
+    onEdit,
+    onCancelEdit,
+    onTyping,
+}: Props) {
     const [body, setBody] = useState('');
     const areaRef = useRef<HTMLTextAreaElement>(null);
     const canSend = body.trim().length > 0 && !disabled;
+
+    /* Keyed on the id, not the object: re-rendering while someone is halfway
+       through rewording must not throw their work away and start over. */
+    useEffect(() => {
+        if (!editing) return;
+
+        setBody(editing.body);
+        const el = areaRef.current;
+        if (el) {
+            el.focus();
+            el.setSelectionRange(editing.body.length, editing.body.length);
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [editing?.id]);
+
+    const cancel = () => {
+        onCancelEdit();
+        setBody('');
+        if (areaRef.current) areaRef.current.style.height = 'auto';
+    };
 
     /* Auto-grow to a ceiling, then scroll. Height is set imperatively rather
        than animated — transitioning height on every keystroke is a layout
@@ -34,7 +78,13 @@ export function Composer({ title, disabled = false, onSend, onTyping }: Props) {
 
     const send = () => {
         if (!canSend) return;
-        onSend(body.trim());
+
+        if (editing) {
+            onEdit(body.trim());
+        } else {
+            onSend(body.trim());
+        }
+
         setBody('');
         if (areaRef.current) {
             areaRef.current.style.height = 'auto';
@@ -48,22 +98,63 @@ export function Composer({ title, disabled = false, onSend, onTyping }: Props) {
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
             send();
+            return;
+        }
+
+        if (e.key === 'Escape' && editing) {
+            e.preventDefault();
+            cancel();
         }
     };
 
     return (
         <div className="border-t border-line bg-page px-4 py-3 md:px-6">
-            <div className="mx-auto flex w-full max-w-[110rem] items-end gap-2">
-                <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    disabled={disabled}
-                    className="size-11 shrink-0 rounded-full text-ink-mute hover:bg-surface-2 hover:text-ink active:bg-surface-2"
+            {editing ? (
+                <div className="mx-auto mb-2 flex w-full max-w-[110rem] items-center gap-2 rounded-lg bg-surface-2 ps-3 pe-1.5 py-1.5">
+                    <Pencil className="size-4 shrink-0 text-ink-mute" aria-hidden />
+                    <span className="flex min-w-0 flex-1 flex-col">
+                        <span className="text-[0.6875rem] font-medium text-ink-soft">
+                            Editing message
+                        </span>
+                        <span className="truncate text-[0.8125rem] text-ink-mute">
+                            {editing.body}
+                        </span>
+                    </span>
+                    <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        onClick={cancel}
+                        className="size-8 shrink-0 rounded-full text-ink-mute hover:bg-line hover:text-ink"
+                    >
+                        <X className="size-4" aria-hidden />
+                        <span className="sr-only">Cancel edit</span>
+                    </Button>
+                </div>
+            ) : null}
+
+            {notice ? (
+                <p
+                    role="alert"
+                    className="mx-auto mb-2 w-full max-w-[110rem] text-[0.8125rem] text-bad"
                 >
-                    <Paperclip className="size-5" aria-hidden />
-                    <span className="sr-only">Attach a file</span>
-                </Button>
+                    {notice}
+                </p>
+            ) : null}
+
+            <div className="mx-auto flex w-full max-w-[110rem] items-end gap-2">
+                {editing ? null : (
+                    <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        disabled={disabled}
+                        className="size-11 shrink-0 rounded-full text-ink-mute hover:bg-surface-2 hover:text-ink active:bg-surface-2"
+                    >
+                        <Paperclip className="size-5" aria-hidden />
+                        <span className="sr-only">Attach a file</span>
+                    </Button>
+                )}
 
                 <div
                     className={cn(
@@ -81,8 +172,8 @@ export function Composer({ title, disabled = false, onSend, onTyping }: Props) {
                         onChange={change}
                         onKeyDown={keydown}
                         disabled={disabled}
-                        aria-label={`Message ${title}`}
-                        placeholder="Write a message"
+                        aria-label={editing ? 'Edit message' : `Message ${title}`}
+                        placeholder={editing ? 'Edit your message' : 'Write a message'}
                         className={cn(
                             'max-h-40 min-h-11 w-full resize-none bg-transparent px-3.5 py-3',
                             'text-[0.875rem] leading-[1.45] text-ink placeholder:text-ink-mute',
@@ -104,8 +195,12 @@ export function Composer({ title, disabled = false, onSend, onTyping }: Props) {
                         'active:translate-y-px disabled:opacity-40',
                     )}
                 >
-                    <SendHorizontal className="size-5" aria-hidden />
-                    <span className="sr-only">Send message</span>
+                    {editing ? (
+                        <Check className="size-5" aria-hidden />
+                    ) : (
+                        <SendHorizontal className="size-5" aria-hidden />
+                    )}
+                    <span className="sr-only">{editing ? 'Save changes' : 'Send message'}</span>
                 </Button>
             </div>
         </div>

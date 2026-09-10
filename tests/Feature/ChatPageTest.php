@@ -40,11 +40,17 @@ it('renders the chat page with the payload shape the client expects', function (
                 ->where('update_settings', false)
                 ->where('update_owner_settings', false)
                 ->where('transfer_ownership', false)
-                ->where('leave', false)))
+                ->where('leave', false)
+                // Deleting the chat is the one thing a direct chat allows and
+                // a group does not.
+                ->where('delete_chat', true)
+                ->where('delete_any_message', false)))
         ->has('messages', 1, fn ($m) => $m
             ->where('body', 'hello')
             ->where('user_id', $other->id)
             ->where('attachments', [])
+            ->where('edited_at', null)
+            ->where('deleted_at', null)
             ->etc()));
 });
 

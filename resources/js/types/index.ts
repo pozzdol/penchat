@@ -25,10 +25,12 @@ export interface Participant {
 }
 
 /**
- * `pending` and `failed` exist only on the client, between the optimistic
- * append and the HTTP response. The server never sends them.
+ * Four server states in order — `sent` (we have it), `delivered` (every other
+ * device has it), `read` (everyone has opened it) — plus `pending` and
+ * `failed`, which exist only on the client between the optimistic append and
+ * the HTTP response. The server never sends those two.
  */
-export type MessageDelivery = 'pending' | 'sent' | 'read' | 'failed';
+export type MessageDelivery = 'pending' | 'sent' | 'delivered' | 'read' | 'failed';
 
 export interface Attachment {
     id: string;
@@ -42,11 +44,22 @@ export interface Message {
     id: string;
     conversation_id: string;
     user_id: string;
+    /** Null on a tombstone: deleting drops the text, it does not hide it. */
     body: string | null;
     created_at: string;
+    edited_at: string | null;
+    /**
+     * Set once the message was deleted for everyone. The message keeps its
+     * place in the thread — a message vanishing mid-conversation reads as a
+     * bug — but there is nothing left in it.
+     */
+    deleted_at: string | null;
     attachments: Attachment[];
     delivery: MessageDelivery;
 }
+
+/** Mirrors Message::EDIT_WINDOW_MINUTES. The server is the one that enforces it. */
+export const EDIT_WINDOW_MS = 120 * 60 * 1000;
 
 /**
  * What the viewer is allowed to do, decided by the server. The panel renders
@@ -61,6 +74,10 @@ export interface ConversationAbilities {
     update_owner_settings: boolean;
     transfer_ownership: boolean;
     leave: boolean;
+    /** Direct chats only — a group is left, not deleted. */
+    delete_chat: boolean;
+    /** Deleting other people's messages: a group admin, nobody else. */
+    delete_any_message: boolean;
 }
 
 export interface Conversation {

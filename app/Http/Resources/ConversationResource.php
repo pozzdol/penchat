@@ -4,27 +4,35 @@ namespace App\Http\Resources;
 
 use App\Enums\ConversationRole;
 use App\Models\Conversation;
+use App\Models\Message;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 use Illuminate\Support\Facades\Gate;
 
 /**
- * Expects `participants` and `latestMessage.attachments` to be eager-loaded.
+ * Expects `participants` to be eager-loaded. The last message is passed in
+ * rather than read off the model: once history is per-viewer, two people
+ * looking at the same conversation can honestly see different previews.
  *
  * @mixin Conversation
  */
 class ConversationResource extends JsonResource
 {
-    public function __construct(Conversation $conversation, private User $viewer, private int $unreadCount)
-    {
+    public function __construct(
+        Conversation $conversation,
+        private User $viewer,
+        private int $unreadCount,
+        private ?Message $lastMessage = null,
+    ) {
         parent::__construct($conversation);
     }
 
     /** @return array<string, mixed> */
     public function toArray(Request $request): array
     {
-        $pointer = $this->resource->readPointerFor($this->viewer);
+        $read = $this->resource->readPointerFor($this->viewer);
+        $delivered = $this->resource->deliveredPointerFor($this->viewer);
         $isGroup = $this->resource->isGroup();
 
         return [
@@ -42,8 +50,8 @@ class ConversationResource extends JsonResource
                     role: $isGroup ? ConversationRole::from($u->pivot->role) : null,
                 ))
                 ->all(),
-            'last_message' => $this->latestMessage
-                ? new MessageResource($this->latestMessage, $pointer)
+            'last_message' => $this->lastMessage
+                ? new MessageResource($this->lastMessage, $read, $delivered)
                 : null,
             'unread_count' => $this->unreadCount,
             // ponytail: static until unread bodies are scanned for @name.
@@ -59,6 +67,8 @@ class ConversationResource extends JsonResource
                 'update_owner_settings' => Gate::forUser($this->viewer)->allows('updateOwnerSettings', $this->resource),
                 'transfer_ownership' => Gate::forUser($this->viewer)->allows('transferOwnership', $this->resource),
                 'leave' => Gate::forUser($this->viewer)->allows('leave', $this->resource),
+                'delete_chat' => Gate::forUser($this->viewer)->allows('deleteChat', $this->resource),
+                'delete_any_message' => Gate::forUser($this->viewer)->allows('deleteAnyMessage', $this->resource),
             ],
         ];
     }

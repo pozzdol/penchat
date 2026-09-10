@@ -1,13 +1,15 @@
 import { Composer } from '@/components/chat/composer';
 import { ConversationList } from '@/components/chat/conversation-list';
-import { Rail } from '@/components/chat/rail';
+import { DetailsPanel } from '@/components/chat/details-panel';
+import { FloatingNav, Rail } from '@/components/chat/rail';
 import { Thread, ThreadEmpty } from '@/components/chat/thread';
 import { ThreadHeader } from '@/components/chat/thread-header';
 import { TooltipProvider } from '@/components/ui/tooltip';
+import { useRealtime } from '@/hooks/use-realtime';
 import { buildThread, conversationTitle } from '@/lib/chat';
 import { cn } from '@/lib/utils';
 import type { ChatPageProps, Message } from '@/types';
-import { Head, router } from '@inertiajs/react';
+import { Head, router, usePage } from '@inertiajs/react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 /** A message typed here but not yet acknowledged by the server. */
@@ -36,13 +38,55 @@ export default function Chat({
     active_conversation_id,
     messages,
 }: ChatPageProps) {
+    /**
+     * Whether a conversation was actually *asked for*, as opposed to the one
+     * the server picks to fill the third pane at `/`.
+     *
+     * The two are not the same and only mobile notices. On a phone there is
+     * one pane, so "the server chose a conversation for you" and "you opened
+     * a conversation" have to be told apart — otherwise the list is
+     * unreachable at `/` and Back is a no-op, because going home simply
+     * re-selects the same chat. On md and up both panes are visible and this
+     * makes no difference at all.
+     */
+    const inRoom = usePage().url.startsWith('/c/');
+
     const [unsent, setUnsent] = useState<Unsent[]>([]);
+    const [detailsOpen, setDetailsOpen] = useState(false);
+    const [editing, setEditing] = useState<{ id: string; body: string } | null>(null);
+    const [notice, setNotice] = useState<string | null>(null);
     const keyRef = useRef(0);
 
     const active = useMemo(
         () => conversations.find((c) => c.id === active_conversation_id) ?? null,
         [conversations, active_conversation_id],
     );
+
+    /**
+     * The newest message in every conversation, as this browser last saw them.
+     * It is what tells the server the device has them — and it has to cover
+     * every row, not just the open one, because "delivered" is about arriving
+     * on the device, not about being looked at.
+     */
+    const newestSeen = useMemo(
+        () => conversations.map((c) => c.last_message?.id ?? '').join(),
+        [conversations],
+    );
+
+    const { online, incoming, forget, typing, onTyping } = useRealtime(
+        current_user.id,
+        current_user.name,
+        active_conversation_id,
+        newestSeen,
+    );
+
+    /**
+     * Once the server prop carries a message, the socket's copy of it is dead
+     * weight — and the authoritative one, which knows this viewer's `delivery`.
+     */
+    useEffect(() => {
+        forget(new Set(messages.map((m) => m.id)));
+    }, [messages, forget]);
 
     const thread = useMemo<Message[]>(() => {
         const mine = unsent
@@ -53,12 +97,25 @@ export default function Chat({
                 user_id: current_user.id,
                 body: u.body,
                 created_at: u.created_at,
+                edited_at: null,
+                deleted_at: null,
                 attachments: [],
                 delivery: u.failed ? 'failed' : 'pending',
             }));
 
-        return [...messages, ...mine];
-    }, [messages, unsent, active?.id, current_user.id]);
+        /* Three sources, one thread. The server's copy wins wherever both have
+           a message, because only it knows whether this viewer has read it.
+           Sorting by id rather than by `created_at` is deliberate: ids are
+           ULIDs, so they already sort by time, and two messages written in the
+           same second still land in a stable order. */
+        const byId = new Map<string, Message>();
+        for (const m of incoming) byId.set(m.id, { ...m, delivery: 'sent' });
+        for (const m of messages) byId.set(m.id, m);
+
+        const settled = [...byId.values()].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+
+        return [...settled, ...mine];
+    }, [messages, incoming, unsent, active?.id, current_user.id]);
 
     const items = useMemo(
         () => (active ? buildThread(thread, active.participants, new Date()) : []),
@@ -94,12 +151,19 @@ export default function Chat({
                             only: ['messages', 'conversations'],
                             preserveScroll: true,
                             preserveState: true,
-                            onSuccess: () =>
-                                setUnsent((prev) => prev.filter((u) => u.id !== key)),
-                            onError: () =>
+                            onSuccess: () => {
+                                setNotice(null);
+                                setUnsent((prev) => prev.filter((u) => u.id !== key));
+                            },
+                            onError: (errors) => {
+                                // The server refuses a send for exactly two
+                                // reasons it wants said out loud: too fast,
+                                // or paused.
+                                setNotice(errors.suspended ?? errors.body ?? null);
                                 setUnsent((prev) =>
                                     prev.map((u) => (u.id === key ? { ...u, failed: true } : u)),
-                                ),
+                                );
+                            },
                             onFinish: () => resolve(),
                         },
                     );
@@ -135,6 +199,35 @@ export default function Chat({
     };
 
     /**
+     * Editing and deleting are one-at-a-time, deliberate acts, so they go out
+     * as ordinary requests rather than through the send queue — and they ask
+     * for the same two props back, because either can change the sidebar's
+     * preview as well as the thread.
+     */
+    const refresh = () => ({
+        only: ['messages', 'conversations'],
+        preserveScroll: true,
+        preserveState: true,
+    });
+
+    const saveEdit = (body: string) => {
+        if (!editing) return;
+
+        router.patch(`/messages/${editing.id}`, { body }, refresh());
+        setEditing(null);
+    };
+
+    const remove = (message: Message, everyone: boolean) => {
+        // Rewriting a message that is about to disappear helps nobody.
+        if (editing?.id === message.id) setEditing(null);
+
+        router.delete(
+            everyone ? `/messages/${message.id}` : `/messages/${message.id}/mine`,
+            refresh(),
+        );
+    };
+
+    /**
      * Mark read when the open conversation has something unread and this window
      * is actually in front. `unread_count` is the signal, so the read pointer
      * never has to travel to the browser: once the PATCH lands the count comes
@@ -142,8 +235,19 @@ export default function Chat({
      */
     const sentRef = useRef<string | null>(null);
 
+    /**
+     * The newest id the *server* knows about. A `temp:` id is not a message
+     * anyone can point a read pointer at, and a socket arrival that has not
+     * been confirmed yet would move the pointer past something the reader has
+     * not been shown.
+     */
+    const lastSettled = useMemo(
+        () => messages.at(-1)?.id ?? null,
+        [messages],
+    );
+
     const markRead = useCallback(() => {
-        const last = messages.at(-1)?.id;
+        const last = lastSettled;
 
         if (!active || active.unread_count === 0 || !last || !document.hasFocus()) {
             return;
@@ -160,7 +264,7 @@ export default function Chat({
             // cancel a message that is still on its way out.
             { async: true, only: ['conversations'], preserveScroll: true, preserveState: true },
         );
-    }, [active, messages]);
+    }, [active, lastSettled]);
 
     useEffect(() => {
         markRead();
@@ -170,7 +274,33 @@ export default function Chat({
         return () => window.removeEventListener('focus', markRead);
     }, [markRead]);
 
+    /**
+     * The server sends `online: false` for everyone but you — it has no way to
+     * know, and AGENTS.md forbids persisting it. The presence roster is the
+     * only source of truth, so it is applied once here rather than drilled
+     * into the three panes that draw a dot.
+     */
+    const live = useMemo(
+        () =>
+            conversations.map((c) => ({
+                ...c,
+                participants: c.participants.map((p) => ({
+                    ...p,
+                    online: p.id === current_user.id || online.has(p.id),
+                })),
+            })),
+        [conversations, online, current_user.id],
+    );
+
+    const liveActive = useMemo(
+        () => live.find((c) => c.id === active_conversation_id) ?? null,
+        [live, active_conversation_id],
+    );
+
     const select = (id: string) => {
+        setDetailsOpen(false);
+        setEditing(null);
+
         if (id === active_conversation_id) return;
 
         router.get(`/c/${id}`, {}, { preserveState: true });
@@ -181,50 +311,70 @@ export default function Chat({
             <Head title={active ? conversationTitle(active, current_user.id) : 'Chats'} />
 
             <div className="flex h-dvh w-full overflow-hidden bg-page text-ink">
-                <Rail active="chats" />
+                {/* A 56px column is a sixth of a phone. Below md the rail is
+                    not narrowed, it is moved — see FloatingNav. */}
+                <Rail active="chats" className="max-md:hidden" />
 
                 {/* Below md exactly one of these two is mounted-visible: the
                     list, or the thread that replaced it. */}
                 <ConversationList
-                    conversations={conversations}
+                    conversations={live}
                     currentUser={current_user}
                     activeId={active_conversation_id}
                     onSelect={select}
-                    className={cn(active && 'max-md:hidden')}
+                    className={cn(inRoom && 'max-md:hidden')}
                 />
 
                 <main
                     className={cn(
                         'flex min-w-0 flex-1 flex-col bg-page',
-                        !active && 'max-md:hidden',
+                        !inRoom && 'max-md:hidden',
                     )}
                 >
-                    {active ? (
+                    {liveActive ? (
                         <>
                             <ThreadHeader
-                                conversation={active}
+                                conversation={liveActive}
                                 currentUser={current_user}
                                 onBack={() => router.get('/')}
+                                onToggleDetails={() => setDetailsOpen((v) => !v)}
+                                detailsOpen={detailsOpen}
                             />
                             <Thread
-                                conversation={active}
+                                conversation={liveActive}
                                 items={items}
                                 currentUser={current_user}
-                                typing={[]}
+                                typing={typing}
                                 onRetry={retry}
+                                onEdit={(m) => setEditing({ id: m.id, body: m.body ?? '' })}
+                                onDelete={remove}
                             />
                             <Composer
-                                title={conversationTitle(active, current_user.id)}
+                                title={conversationTitle(liveActive, current_user.id)}
+                                editing={editing}
+                                notice={notice}
                                 onSend={send}
-                                onTyping={() => {
-                                    /* whisper goes here once Reverb is wired */
-                                }}
+                                onEdit={saveEdit}
+                                onCancelEdit={() => setEditing(null)}
+                                onTyping={onTyping}
                             />
                         </>
                     ) : (
                         <ThreadEmpty currentUser={current_user} />
                     )}
                 </main>
+
+                {/* Only over the list. A conversation gets the whole screen,
+                    which is the point of the change. */}
+                {inRoom ? null : <FloatingNav active="chats" />}
+
+                {liveActive && detailsOpen ? (
+                    <DetailsPanel
+                        conversation={liveActive}
+                        currentUser={current_user}
+                        onClose={() => setDetailsOpen(false)}
+                    />
+                ) : null}
             </div>
         </TooltipProvider>
     );

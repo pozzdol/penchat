@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Events\ConversationTouched;
 use App\Http\Requests\MarkConversationReadRequest;
 use App\Models\Conversation;
 use App\Models\User;
@@ -31,7 +32,16 @@ class ConversationReadController extends Controller
         if ($target !== null && strcmp($target, (string) ($pivot?->last_read_message_id ?? '')) > 0) {
             $conversation->participants()->updateExistingPivot($user->id, [
                 'last_read_message_id' => $target,
+                // You cannot have read what never arrived. Letting the two
+                // disagree would let a message report "read" while the tick
+                // logic still called it merely delivered.
+                'last_delivered_message_id' => $target,
             ]);
+
+            // Only when it actually moved. A pointer that did not move changes
+            // nobody's ticks, and firing anyway would have every open client
+            // reload on every no-op mark-read.
+            ConversationTouched::dispatch($conversation);
         }
 
         return back();

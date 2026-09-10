@@ -42,6 +42,7 @@ class User extends Authenticatable
     {
         return [
             'email_verified_at' => 'datetime',
+            'suspended_until' => 'datetime',
             'password' => 'hashed',
         ];
     }
@@ -56,9 +57,34 @@ class User extends Authenticatable
         return $this->password ?? '';
     }
 
+    /**
+     * Read-only, and only for as long as the timestamp says. There is no
+     * administrator in this app to lift a permanent flag.
+     */
+    public function isSuspended(): bool
+    {
+        return $this->suspended_until !== null && $this->suspended_until->isFuture();
+    }
+
+    /**
+     * Whether these two have ever met here — a direct chat or a shared group.
+     *
+     * This is what stops a stranger dragging someone into a group: to add
+     * you, they first have to reach you somewhere you could ignore them. A
+     * group counts as well as a DM, because in a real team people meet in
+     * groups; the residual hole is that someone already in a group with you
+     * can add you to others.
+     */
+    public function sharesConversationWith(self $other): bool
+    {
+        return $this->conversations()
+            ->whereHas('participants', fn ($q) => $q->whereKey($other->id))
+            ->exists();
+    }
+
     public function conversations(): BelongsToMany
     {
         return $this->belongsToMany(Conversation::class)
-            ->withPivot('role', 'last_read_message_id', 'cleared_up_to_message_id', 'joined_at');
+            ->withPivot('role', 'last_read_message_id', 'last_delivered_message_id', 'cleared_up_to_message_id', 'hidden_at', 'joined_at');
     }
 }

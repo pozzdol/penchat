@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Enums\ConversationRole;
+use App\Events\ConversationTouched;
 use App\Http\Requests\AddMembersRequest;
 use App\Http\Requests\UpdateMemberRoleRequest;
 use App\Models\Conversation;
@@ -31,7 +32,17 @@ class ConversationMemberController extends Controller
             ]);
         }
 
+        foreach ($users as $user) {
+            if (! $request->user()->sharesConversationWith($user)) {
+                throw ValidationException::withMessages([
+                    'usernames' => "You have not spoken to @{$user->username} yet. Start a chat with them first.",
+                ]);
+            }
+        }
+
         $conversation->attachParticipants($users->all());
+
+        ConversationTouched::dispatch($conversation);
 
         return back();
     }
@@ -53,6 +64,8 @@ class ConversationMemberController extends Controller
         $conversation->participants()->updateExistingPivot($user->id, [
             'role' => $request->validated('role'),
         ]);
+
+        ConversationTouched::dispatch($conversation);
 
         return back();
     }
@@ -78,6 +91,10 @@ class ConversationMemberController extends Controller
 
         $conversation->removeParticipant($user);
 
+        // Named explicitly: their pivot row is gone, so the event cannot find
+        // them any more, and their sidebar still has to lose the row.
+        $this->touch($conversation, [$user->id]);
+
         return back();
     }
 
@@ -98,6 +115,8 @@ class ConversationMemberController extends Controller
         ]);
         $conversation->forceFill(['owner_id' => $user->id])->save();
 
+        ConversationTouched::dispatch($conversation);
+
         return back();
     }
 
@@ -106,9 +125,29 @@ class ConversationMemberController extends Controller
     {
         Gate::authorize('leave', $conversation);
 
-        $conversation->removeParticipant(request()->user());
+        $leaver = request()->user();
+
+        $conversation->removeParticipant($leaver);
+
+        $this->touch($conversation, [$leaver->id]);
 
         return to_route('chat.index');
+    }
+
+    /**
+     * `removeParticipant` deletes the conversation when the last person walks
+     * out. There is then nobody to tell, and querying participants on a
+     * deleted row would only return an empty list.
+     *
+     * @param  list<string>  $alsoTell
+     */
+    private function touch(Conversation $conversation, array $alsoTell = []): void
+    {
+        if (! $conversation->exists) {
+            return;
+        }
+
+        ConversationTouched::dispatch($conversation, $alsoTell);
     }
 
     private function groupOnly(Conversation $conversation): void

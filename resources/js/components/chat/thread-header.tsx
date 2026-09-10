@@ -10,9 +10,17 @@ interface Props {
     currentUser: Participant;
     /** Returns to the list. Only reachable below md, where the panes swap. */
     onBack: () => void;
+    onToggleDetails: () => void;
+    detailsOpen: boolean;
 }
 
-export function ThreadHeader({ conversation, currentUser, onBack }: Props) {
+export function ThreadHeader({
+    conversation,
+    currentUser,
+    onBack,
+    onToggleDetails,
+    detailsOpen,
+}: Props) {
     const title = conversationTitle(conversation, currentUser.id);
     const other = counterpart(conversation, currentUser.id);
     const isGroup = conversation.type === 'group';
@@ -60,24 +68,35 @@ export function ThreadHeader({ conversation, currentUser, onBack }: Props) {
                 {[
                     { Icon: Search, label: 'Search in conversation' },
                     { Icon: Phone, label: 'Start a call' },
-                    { Icon: Info, label: 'Conversation details' },
                 ].map(({ Icon, label }) => (
                     <Button
                         key={label}
                         type="button"
                         variant="ghost"
                         size="icon"
-                        className={cn(
-                            'size-11 rounded-full text-ink-mute hover:bg-surface-2 hover:text-ink active:bg-surface-2',
-                            /* Three icons crowd the title off a 320px header;
-                               only the details button survives the squeeze. */
-                            label === 'Conversation details' ? '' : 'hidden sm:inline-flex',
-                        )}
+                        className="hidden size-11 rounded-full text-ink-mute hover:bg-surface-2 hover:text-ink active:bg-surface-2 sm:inline-flex"
                     >
                         <Icon className="size-5" aria-hidden />
                         <span className="sr-only">{label}</span>
                     </Button>
                 ))}
+
+                <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    onClick={onToggleDetails}
+                    aria-expanded={detailsOpen}
+                    className={cn(
+                        'size-11 rounded-full hover:bg-surface-2 hover:text-ink active:bg-surface-2',
+                        detailsOpen ? 'bg-surface-2 text-ink' : 'text-ink-mute',
+                    )}
+                >
+                    <Info className="size-5" aria-hidden />
+                    <span className="sr-only">
+                        {isGroup ? 'Group info' : 'Contact info'}
+                    </span>
+                </Button>
             </div>
         </header>
     );

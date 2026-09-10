@@ -44,8 +44,12 @@ moves out accordingly.
 - `ChatController` props are **closures**, so a partial reload genuinely skips
   the work it did not ask for.
 
-### 1b — groups, roles, members panel (next)
+### 1b — groups, roles, members panel ✅ done
 
+- 7 routes, the policy matrix below, owner succession, and 22 tests. The
+  members panel is wired: `details-panel.tsx` behind the `Info` button, group
+  creation behind the compose menu. `DELETE …/membership` was pulled forward
+  from 1c because the panel needs a Leave button to be honest.
 - `POST /conversations` — name + usernames. Creator becomes `owner_id` and admin.
 - Members panel behind the `Info` button: roles, add, remove, promote, demote,
   transfer ownership, the two setting switches, leave.
@@ -70,52 +74,142 @@ moves out accordingly.
   message id, so a new member sees the group from the moment they joined and
   a returning one does not inherit the entire backlog as unread.
 
-### 1c — leaving and clearing
+### 1c — clearing and deleting ✅ done
+
+Built together with 1d, because both make message visibility per-viewer and
+would otherwise rewrite the same three queries twice.
 
 - `DELETE …/history` — sets `cleared_up_to_message_id` **and**
   `last_read_message_id`. Setting both is what stops a badge you cannot clear.
-  The conversation leaves the list and returns, showing only new messages, when
-  someone next writes. Telegram's behaviour.
-- `DELETE …/membership` — detaches the pivot row; history survives for everyone
-  else; runs the succession rule above.
-- `DELETE …/{conversation}` — **direct only**, wipes it for both sides.
-  Irreversible and triggerable by one party, so it needs type-to-confirm.
+  The row stays on the list; you are still in the conversation, you have just
+  stopped carrying its past around.
+- `DELETE …/{conversation}` — **direct only**; a group is left, not deleted.
+  Revised from "wipes it for both sides": the default is one-sided, and an
+  explicit "Also delete for X" checkbox is what reaches the other person. That
+  made a plain confirm enough — type-to-confirm was protecting against a
+  consequence this no longer has.
+- Both entry points: a menu on the list row (reachable without opening the
+  chat) and rows in the details panel.
 
-### 1d — editing and deleting messages
+### 1d — editing and deleting messages ✅ done
 
 - Edit: author only, **2-hour window**, anchored on `created_at` so edits cannot
-  be chained to extend it. Sets `edited_at`.
-- Delete for everyone: author any time, or a group admin. Sets `deleted_at` and
-  leaves a **tombstone** — deliberately unlike Telegram, which removes the
-  message entirely. A message vanishing mid-conversation reads as a bug.
+  be chained to extend it. Sets `edited_at`. Editing happens in the composer,
+  not in the bubble — one control in this app accepts text.
+- Delete for everyone: author any time, or a group admin. Sets `deleted_at`,
+  **nulls `body`**, and leaves a tombstone — deliberately unlike Telegram, which
+  removes the message entirely.
 - Delete for me: a row in `message_user_deletions`.
-- Consequence: "the last message" stops being a property of the conversation and
-  becomes one of *(conversation, viewer)*. `latestMessage()` cannot survive this;
-  the sidebar needs a per-viewer query instead.
+- Consequence, as predicted: "the last message" stopped being a property of the
+  conversation and became one of *(conversation, viewer)*. `latestMessage()` is
+  gone; `ChatController::lastMessages()` resolves every row's preview in two
+  queries. `unreadCounts()` and the thread query took the same treatment.
+- 27 new tests, 116 green in total.
 
-## Phase 2 — Realtime: Reverb + Echo
+## Phase 2 — Realtime: Reverb + Echo ✅ done
 
-Deliberately after the logic is proven. **Nothing here has started**:
-`BROADCAST_CONNECTION` is still `log`, there is no `routes/channels.php`, and
-none of the three packages is installed.
+Built after the logic was proven, which is what let the payload design be
+decided by facts rather than guesses.
 
-- New dependencies, **owner's permission required**: `laravel/reverb`, then
-  `laravel-echo` + `pusher-js` via `bun add`.
-- `routes/channels.php` verifying pivot membership for `conversation.{id}` and
-  `presence-conversation.{id}`. **Plan mode** — this is the security boundary.
-- `MessageSent`, `MessageRead` — `ShouldBroadcast`, explicit `broadcastWith()`,
-  never a whole model, `toOthers()`.
-- Client: subscribe per conversation in a `useEffect` whose cleanup calls
-  `leaveChannel`. De-duplicate by message `id`.
-- Presence channel → the green dot. Whisper → typing, debounced 2–3s, cleared on
-  a timeout rather than only on an explicit stop.
-- Socket behaviour has to be verified in the owner's own terminal; an agent
-  cannot hold a WebSocket open.
+- Dependencies: `laravel/reverb` ^1.11, plus `@laravel/echo-react` and
+  `pusher-js` via `bun add -d`. **Not** `laravel-echo` separately — the React
+  package bundles Echo, and two copies mean two connections.
+  - Reverb ≤1.11 pins `guzzlehttp/psr7 ^2.6`, so installing it downgraded
+    guzzle 8.2 → 7.15. Laravel 13 supports `^7.8.2` and nothing here calls
+    Guzzle directly, so this is a supported configuration, not a compromise.
+- **Three channels**, not the two originally sketched. `presence-conversation`
+  was dropped (whispers ride the private channel) and `user.{id}` was added,
+  because a participant is only subscribed to the conversation they have
+  *open* — without their own line, a badge for any other chat never moves.
+- **Two events.** `MessageChanged` (full payload; sent, edited and deleted all
+  answered by one idempotent upsert) and `ConversationTouched` (an id, and the
+  client reloads). Read receipts ride the thin signal: a tick turning blue
+  200 ms later than it could is imperceptible and saves an event class.
+- `ShouldBroadcastNow`, so a missing queue worker cannot swallow broadcasts.
+- Presence drives the green dot, which until now was hardcoded and told
+  everyone that everyone else was offline.
+- Typing whispers, throttled 2 s, expiring after 4 s — cleared on a timer
+  because the explicit "stopped typing" is exactly what a closed laptop never
+  sends.
+
+### 2b — delivery receipts ✅ done
+
+The ticks skipped a step: one grey (we have it) jumped straight to two green
+(everyone read it), with no "it reached their device" in between.
+
+- `conversation_user.last_delivered_message_id` — a second high-water pointer,
+  because one pointer holds one boundary and this is a second one. Still one
+  row per participant, so it is not the read-receipt table AGENTS.md rules out.
+- `POST /delivered` — bodyless and bulk, acking every conversation at once.
+  The sidebar payload already carries the newest message of each, so by the
+  time a page has rendered the device genuinely holds all of them.
+- **The loop that had to be designed out.** Acking moves a pointer, moving a
+  pointer notifies everyone, everyone acks when notified. It terminates only
+  because a pointer that cannot move announces nothing. Its own test.
+- Delivered and read share a glyph and measured **1.003:1** against each other
+  — indistinguishable once hue is removed. So read is drawn heavier as well as
+  greener: one thin tick, two thin ticks, two heavy green ticks, all three
+  legible in greyscale.
+
+### Two traps this phase walked into, recorded so they are not walked into again
+
+1. **The scaffolding's channel callback was an authorization bypass.**
+   `install:broadcasting` writes `(int) $user->id === (int) $id`. On ULIDs both
+   sides cast to `1`, so it authorized every user for every other user's
+   channel. Correct for auto-increment keys; catastrophic here.
+2. **A channel payload is the same for everyone; visibility is not.**
+   Broadcasting an edit pushed the new text of a message past the per-viewer
+   filter that was hiding it, so "delete for me" came undone the moment the
+   author fixed a typo. Only brand-new messages may travel as payloads.
+3. **Channel-auth tests pass vacuously by default.** `phpunit.xml` sets
+   `BROADCAST_CONNECTION=null`, and `NullBroadcaster::auth()` is an empty
+   method that answers 200 to everyone without ever opening
+   `routes/channels.php`. `ChannelAuthTest` switches the driver *and*
+   re-requires the channels file, because `Broadcast::channel()` registers
+   against whichever driver is default at the moment it runs.
+
+All three share one shape — code that compiles, connects and then quietly does
+nothing. `tests/Feature/RealtimeContractTest.php` is the standing tripwire for
+that class, including a cross-language check that the event names the client
+listens for are names the server actually emits.
+
+## Phase 2c — Data protection and abuse ✅ done
+
+Prompted by a security review: authorization was solid, storage was bare.
+
+- **Encrypted at rest**: `messages.body` and `conversations.name`. The trap was
+  `conversations.name` being `varchar(255)` — a ten-character name encrypts to
+  228, so a sixty-character one would have overflowed. Widened to `text` before
+  a byte was written. The data migration probes each value first, so it is safe
+  to run twice.
+- **Throttle → suspend**: over 30 messages/minute earns a field error; three
+  such occasions inside ten minutes earns 15 minutes, then 1 h, 6 h, 24 h.
+  `suspended_until` is a timestamp because this app has no administrator to
+  lift a flag. Read-only, never a lockout.
+  - A strike counts *occasions*, not rejected requests. The first version
+    scored one per message past the ceiling, so a single long paste collected
+    ten strikes and was suspended for exactly the thing the ladder existed to
+    forgive. Caught by the "single burst" test.
+- **Consent to be added**: you can only add someone to a group if you already
+  share a conversation with them. This replaced the reporting system as the
+  answer to "people adding others to spam groups" — reports arrive after the
+  harm, consent prevents it.
+
+**Still open, by decision:** user reports and an admin panel to review them.
+The owner wants both; deferred to their own discussion. Note that they need an
+app-level admin role, which does not exist yet — and once it does, the
+`suspended_until` design above could gain a manual lever.
 
 ## Phase 3 — Attachments
 
 Multipart POST, mime/size validation, disk storage, `attachments` rows in the
 same transaction as the message. The attach button is a stub until then.
+
+**Design the security in, do not bolt it on.** This is the largest new attack
+surface left: path traversal, mime validation, and access control on serving
+the file. `storage/{path}` is already a registered route and carries no policy.
+Message bodies are encrypted at rest; attachment contents would not be, which
+is a gap worth deciding on deliberately rather than by omission.
 
 ## Phase 4 — Hardening and deploy
 
@@ -142,6 +236,8 @@ Everything below was approved explicitly:
   ownership is transferable and a direct chat has no owner.
 - `conversations.admins_can_promote`, `conversations.members_can_add`.
 - `conversation_user.role`, `conversation_user.cleared_up_to_message_id`.
+- `conversation_user.hidden_at` — the only thing separating "empty this
+  conversation" from "take it off my list", since both move the same pointer.
 
 AGENTS.md has been brought in line: five tables, ULID keys, the role
 columns, and the same-millisecond ordering caveat.

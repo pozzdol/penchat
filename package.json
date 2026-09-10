@@ -7,12 +7,14 @@
         "dev": "vite"
     },
     "devDependencies": {
+        "@laravel/echo-react": "^2.5.0",
         "@tailwindcss/vite": "^4.0.0",
         "@types/react": "^19.2.18",
         "@types/react-dom": "^19.2.7",
         "@vitejs/plugin-react": "^6.1.1",
         "concurrently": "^10.0.3",
         "laravel-vite-plugin": "^3.1",
+        "pusher-js": "^8.6.0",
         "tailwindcss": "^4.0.0",
         "typescript": "^7.0.2",
         "vite": "^8.0.0"

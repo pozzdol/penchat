@@ -1,11 +1,25 @@
+import { BrandMark } from '@/components/chat/brand';
+import { ChatActionDialog, type ChatAction } from '@/components/chat/chat-actions';
 import { DeliveryMark } from '@/components/chat/delivery-mark';
-import { NewChatDialog } from '@/components/chat/new-chat-dialog';
+import { ComposeMenu } from '@/components/chat/compose-menu';
+import {
+    ContextMenu,
+    ContextMenuContent,
+    ContextMenuItem,
+    ContextMenuTrigger,
+} from '@/components/ui/context-menu';
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { PresenceAvatar } from '@/components/chat/presence-avatar';
 import { Input } from '@/components/ui/input';
 import { conversationTitle, counterpart, listTime } from '@/lib/chat';
 import { cn } from '@/lib/utils';
-import type { Conversation, Participant } from '@/types';
-import { AtSign, Search, SquarePen, Users } from 'lucide-react';
+import type { Conversation, Message, Participant } from '@/types';
+import { AtSign, ChevronDown, Eraser, Search, Trash2, Users } from 'lucide-react';
 import { useMemo, useState } from 'react';
 
 interface Props {
@@ -50,21 +64,14 @@ export function ConversationList({
                 the list it introduces. */}
             <div className="px-4 pt-5 pb-3">
                 <div className="flex items-center justify-between gap-2">
-                    <h1 className="text-[1.375rem] leading-none font-semibold tracking-[-0.02em]">
+                    <h1 className="flex items-center gap-2 text-[1.375rem] leading-none font-semibold tracking-[-0.02em]">
+                        {/* Mobile only: on desktop the rail already carries the
+                            mark, and two of them would just be two of them. */}
+                        <BrandMark className="h-6 text-ink-soft md:hidden" />
                         Chats
                     </h1>
 
-                    <NewChatDialog
-                        trigger={
-                            <button
-                                type="button"
-                                className="-me-2 grid size-11 shrink-0 place-items-center rounded-full text-ink-mute transition-colors duration-(--dur-micro) ease-out hover:bg-surface-2 hover:text-ink active:bg-surface-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-info"
-                            >
-                                <SquarePen className="size-5" aria-hidden />
-                                <span className="sr-only">New chat</span>
-                            </button>
-                        }
-                    />
+                    <ComposeMenu className="-me-2" />
                 </div>
 
                 <div className="relative mt-4">
@@ -86,7 +93,9 @@ export function ConversationList({
             {matches.length === 0 ? (
                 <EmptyResults query={query} />
             ) : (
-                <ul className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-3">
+                /* max-md:pb-24 — the last row has to be able to scroll clear
+                   of the floating nav, which sits over this list on mobile. */
+                <ul className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-3 max-md:pb-24">
                     {matches.map((conversation) => (
                         <ConversationRow
                             key={conversation.id}
@@ -128,8 +137,22 @@ function ConversationRow({
             : conversation.participants.find((p) => p.id === last.user_id)?.name.split(' ')[0]
         : null;
 
+    /* One dialog per row, opened either by the hover chevron or by
+       right-clicking the row. Keeping the state here rather than inside the
+       menu is what lets the two share it. */
+    const [action, setAction] = useState<ChatAction>(null);
+
+    const actions: { key: ChatAction; icon: typeof Eraser; label: string; destructive?: boolean }[] = [
+        { key: 'clear', icon: Eraser, label: 'Clear history' },
+        ...(conversation.can.delete_chat
+            ? [{ key: 'delete' as const, icon: Trash2, label: 'Delete chat', destructive: true }]
+            : []),
+    ];
+
     return (
-        <li>
+        <li className="group/row relative">
+            <ContextMenu>
+            <ContextMenuTrigger asChild>
             <button
                 type="button"
                 onClick={() => onSelect(conversation.id)}
@@ -138,8 +161,14 @@ function ConversationRow({
                     'group relative flex w-full items-center gap-3 px-4 py-2.5 text-start',
                     'transition-colors duration-(--dur-micro) ease-out',
                     'focus-visible:z-1 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-info',
+                    /* Selection is a two-pane idea. On a phone the list and
+                       the thread are never on screen together, so a
+                       highlighted row would be pointing at something you
+                       cannot see — and at `/` the server picks a conversation
+                       to fill the third pane, which would mark a row nobody
+                       chose. Every selected style below is therefore `md:`. */
                     selected
-                        ? 'bg-fill text-fill-ink'
+                        ? 'max-md:hover:bg-surface-2 md:bg-fill md:text-fill-ink'
                         : 'hover:bg-surface-2 active:bg-surface-2',
                 )}
             >
@@ -151,7 +180,7 @@ function ConversationRow({
                     className={cn(
                         'absolute inset-x-4 bottom-0 h-px bg-line',
                         'group-last:hidden',
-                        selected && 'hidden',
+                        selected && 'md:hidden',
                     )}
                 />
 
@@ -179,7 +208,12 @@ function ConversationRow({
                                 dateTime={last.created_at}
                                 className={cn(
                                     'shrink-0 text-[0.6875rem]',
-                                    selected ? 'text-fill-ink-soft' : unread ? 'text-ink-soft' : 'text-ink-mute',
+                                    /* The actions button takes this slot on
+                                       hover. Fading rather than hiding keeps
+                                       the row from reflowing under the cursor. */
+                                    'transition-opacity duration-(--dur-micro) ease-out group-hover/row:opacity-0',
+                                    unread ? 'text-ink-soft' : 'text-ink-mute',
+                                    selected && 'md:text-fill-ink-soft',
                                 )}
                             >
                                 {listTime(last.created_at)}
@@ -191,22 +225,20 @@ function ConversationRow({
                         {sentByMe && last ? (
                             <DeliveryMark
                                 delivery={last.delivery}
-                                className={selected ? 'text-fill-ink-soft' : undefined}
+                                className={selected ? 'md:text-fill-ink-soft' : undefined}
                             />
                         ) : null}
 
                         <span
                             className={cn(
                                 'min-w-0 flex-1 truncate text-[0.8125rem]',
-                                selected
-                                    ? 'text-fill-ink-soft'
-                                    : unread
-                                      ? 'text-ink-soft'
-                                      : 'text-ink-mute',
+                                unread ? 'text-ink-soft' : 'text-ink-mute',
+                                selected && 'md:text-fill-ink-soft',
+                                last?.deleted_at && 'italic',
                             )}
                         >
                             {last
-                                ? `${speaker ? `${speaker}: ` : ''}${last.body ?? 'Attachment'}`
+                                ? `${speaker ? `${speaker}: ` : ''}${preview(last)}`
                                 : 'No messages yet'}
                         </span>
 
@@ -214,7 +246,8 @@ function ConversationRow({
                             <span
                                 className={cn(
                                     'grid size-4.5 shrink-0 place-items-center rounded-full',
-                                    selected ? 'bg-fill-ink/20 text-fill-ink' : 'bg-info/12 text-info',
+                                    'bg-info/12 text-info',
+                                    selected && 'md:bg-fill-ink md:text-fill',
                                 )}
                             >
                                 <AtSign className="size-3" aria-hidden />
@@ -227,7 +260,8 @@ function ConversationRow({
                                 data-tabular
                                 className={cn(
                                     'grid h-4.5 min-w-4.5 shrink-0 place-items-center rounded-full px-1 text-[0.6875rem] font-semibold',
-                                    selected ? 'bg-fill-ink text-fill' : 'bg-ink text-ink-ink',
+                                    'bg-ink text-ink-ink',
+                                    selected && 'md:bg-fill-ink md:text-fill',
                                 )}
                             >
                                 {conversation.unread_count > 99 ? '99+' : conversation.unread_count}
@@ -237,8 +271,100 @@ function ConversationRow({
                     </span>
                 </span>
             </button>
+            </ContextMenuTrigger>
+
+            <ContextMenuContent>
+                {actions.map((a) => (
+                    <ContextMenuItem
+                        key={a.key}
+                        variant={a.destructive ? 'destructive' : 'default'}
+                        onSelect={() => setAction(a.key)}
+                    >
+                        <a.icon aria-hidden />
+                        {a.label}
+                    </ContextMenuItem>
+                ))}
+            </ContextMenuContent>
+            </ContextMenu>
+
+            <RowMenu
+                label={`Actions for ${title}`}
+                actions={actions}
+                selected={selected}
+                onPick={setAction}
+            />
+
+            <ChatActionDialog
+                conversation={conversation}
+                currentUser={currentUser}
+                action={action}
+                onClose={() => setAction(null)}
+            />
         </li>
     );
+}
+
+/**
+ * Reachable without opening the chat first, which is the point: tidying the
+ * list is something you do to rows you are not reading. The same actions are
+ * on the row's right-click menu; this one exists because right-click is not
+ * discoverable and does not exist on touch.
+ *
+ * Positioned over the timestamp rather than given a column of its own — a
+ * column that appears on hover moves every row under the cursor.
+ */
+function RowMenu({
+    label,
+    actions,
+    selected,
+    onPick,
+}: {
+    label: string;
+    actions: { key: ChatAction; icon: typeof Eraser; label: string; destructive?: boolean }[];
+    selected: boolean;
+    onPick: (action: ChatAction) => void;
+}) {
+    return (
+        <DropdownMenu>
+            <DropdownMenuTrigger
+                aria-label={label}
+                className={cn(
+                    'absolute end-2 top-1/2 grid size-7 -translate-y-1/2 place-items-center rounded-full',
+                    'opacity-0 transition-opacity duration-(--dur-micro) ease-out',
+                    'group-hover/row:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100',
+                    'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-info',
+                    'bg-surface-2 text-ink-mute',
+                    selected && 'md:bg-fill md:text-fill-ink-soft',
+                )}
+            >
+                <ChevronDown className="size-4" aria-hidden />
+            </DropdownMenuTrigger>
+
+            <DropdownMenuContent align="end" className="w-48">
+                {actions.map((a) => (
+                    <DropdownMenuItem
+                        key={a.key}
+                        variant={a.destructive ? 'destructive' : 'default'}
+                        onSelect={() => onPick(a.key)}
+                    >
+                        <a.icon aria-hidden />
+                        {a.label}
+                    </DropdownMenuItem>
+                ))}
+            </DropdownMenuContent>
+        </DropdownMenu>
+    );
+}
+
+/**
+ * A null body used to mean "attachment only". Since messages can be deleted it
+ * can also mean a tombstone, and calling that an attachment is a lie the row
+ * tells at a glance.
+ */
+function preview(message: Message): string {
+    if (message.deleted_at) return 'This message was deleted';
+
+    return message.body ?? 'Attachment';
 }
 
 function EmptyResults({ query }: { query: string }) {

@@ -41,12 +41,19 @@ class ConversationPolicy
     }
 
     /**
-     * Wiping a direct chat for both sides. Groups are left, not deleted, so
-     * that one person cannot destroy everyone else's history.
+     * Taking a direct chat off your list, and — with the checkbox — off theirs
+     * too. Groups are left, not deleted, so that one person cannot destroy
+     * everyone else's history; a group offers Clear history and Exit instead.
      */
-    public function deleteForEveryone(User $user, Conversation $conversation): bool
+    public function deleteChat(User $user, Conversation $conversation): bool
     {
         return ! $conversation->isGroup() && $this->participates($user, $conversation);
+    }
+
+    /** Deleting anyone's message, as opposed to only your own. */
+    public function deleteAnyMessage(User $user, Conversation $conversation): bool
+    {
+        return $conversation->isGroup() && $conversation->isAdmin($user);
     }
 
     public function addMember(User $user, Conversation $conversation): bool

@@ -14,6 +14,8 @@ it('creates a group with the creator as owner and admin', function () {
     $me = User::factory()->create(['username' => 'fikri']);
     $a = User::factory()->create(['username' => 'luis']);
     $b = User::factory()->create(['username' => 'paul']);
+    acquainted($me, $a);
+    acquainted($me, $b);
 
     $this->actingAs($me)->post('/conversations', [
         'name' => '  Ridgeline Deploys  ',
@@ -63,6 +65,7 @@ it('requires a name', function () {
 it('lets an admin add someone', function () {
     [$owner, $newcomer] = User::factory()->count(2)->create();
     $g = group('Ops', $owner);
+    acquainted($owner, $newcomer);
 
     $this->actingAs($owner)->post("/conversations/{$g->id}/members", ['usernames' => [$newcomer->username]])
         ->assertSessionHasNoErrors();
@@ -73,6 +76,7 @@ it('lets an admin add someone', function () {
 it('refuses a plain member adding someone until the switch is on', function () {
     [$owner, $member, $newcomer] = User::factory()->count(3)->create();
     $g = group('Ops', $owner, [$member]);
+    acquainted($member, $newcomer);
 
     $this->actingAs($member)->post("/conversations/{$g->id}/members", ['usernames' => [$newcomer->username]])
         ->assertForbidden();
@@ -102,6 +106,7 @@ it('refuses adding someone already in the group', function () {
 it('starts a new member from the present, not the backlog', function () {
     [$owner, $newcomer] = User::factory()->count(2)->create();
     $g = group('Ops', $owner);
+    acquainted($owner, $newcomer);
     say($g, $owner, 'old one');
     $last = say($g, $owner, 'old two');
 

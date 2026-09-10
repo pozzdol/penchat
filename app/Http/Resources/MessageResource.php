@@ -10,15 +10,19 @@ use Illuminate\Http\Resources\Json\JsonResource;
  * The wire shape of a message. Phase 2's MessageSent::broadcastWith() returns
  * exactly this, which is how resources/js/types/index.ts stays true.
  *
- * `readPointer` is the lowest last_read_message_id among the *other*
- * participants: a message is read by everyone once its id is at or below it.
+ * The two pointers are the lowest among the *other* participants, so a group
+ * only advances at the pace of whoever is furthest behind. Order matters:
+ * `read` is checked first because it implies `delivered`.
  *
  * @mixin Message
  */
 class MessageResource extends JsonResource
 {
-    public function __construct(Message $message, private string $readPointer = '')
-    {
+    public function __construct(
+        Message $message,
+        private string $readPointer = '',
+        private string $deliveredPointer = '',
+    ) {
         parent::__construct($message);
     }
 
@@ -31,8 +35,16 @@ class MessageResource extends JsonResource
             'user_id' => $this->user_id,
             'body' => $this->body,
             'created_at' => $this->created_at->toIso8601String(),
+            'edited_at' => $this->edited_at?->toIso8601String(),
+            // The tombstone. Deleting nulls the body on the way out, so there
+            // is nothing here to leak even if a client ignored this flag.
+            'deleted_at' => $this->deleted_at?->toIso8601String(),
             'attachments' => AttachmentResource::collection($this->attachments),
-            'delivery' => strcmp($this->id, $this->readPointer) <= 0 ? 'read' : 'sent',
+            'delivery' => match (true) {
+                strcmp($this->id, $this->readPointer) <= 0 => 'read',
+                strcmp($this->id, $this->deliveredPointer) <= 0 => 'delivered',
+                default => 'sent',
+            },
         ];
     }
 }

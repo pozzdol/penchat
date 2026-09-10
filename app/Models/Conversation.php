@@ -14,7 +14,6 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 
@@ -33,6 +32,8 @@ class Conversation extends Model
     {
         return [
             'type' => ConversationType::class,
+            // A group name says plenty on its own next to a participant list.
+            'name' => 'encrypted',
             'admins_can_promote' => 'boolean',
             'members_can_add' => 'boolean',
         ];
@@ -41,17 +42,12 @@ class Conversation extends Model
     public function participants(): BelongsToMany
     {
         return $this->belongsToMany(User::class)
-            ->withPivot('role', 'last_read_message_id', 'cleared_up_to_message_id', 'joined_at');
+            ->withPivot('role', 'last_read_message_id', 'last_delivered_message_id', 'cleared_up_to_message_id', 'hidden_at', 'joined_at');
     }
 
     public function messages(): HasMany
     {
         return $this->hasMany(Message::class);
-    }
-
-    public function latestMessage(): HasOne
-    {
-        return $this->hasOne(Message::class)->latestOfMany();
     }
 
     /** Null on a direct chat: two equals, nobody in charge. */
@@ -111,6 +107,26 @@ class Conversation extends Model
      */
     public function readPointerFor(User $viewer): string
     {
+        return $this->lowestPointerAmongOthers($viewer, 'last_read_message_id');
+    }
+
+    /**
+     * The same shape one step earlier: a message is on everyone's device once
+     * its id is at or below this. Two grey ticks; green needs the pointer
+     * above.
+     */
+    public function deliveredPointerFor(User $viewer): string
+    {
+        return $this->lowestPointerAmongOthers($viewer, 'last_delivered_message_id');
+    }
+
+    /**
+     * Lowest wins, so a group only advances at the pace of whoever is furthest
+     * behind — one member who has not caught up holds the mark back, which is
+     * exactly what makes the tick trustworthy.
+     */
+    private function lowestPointerAmongOthers(User $viewer, string $column): string
+    {
         $others = $this->participants->reject(fn (User $u) => $u->is($viewer));
 
         if ($others->isEmpty()) {
@@ -118,9 +134,33 @@ class Conversation extends Model
         }
 
         return $others
-            ->map(fn (User $u) => (string) ($u->pivot->last_read_message_id ?? ''))
+            ->map(fn (User $u) => (string) ($u->pivot->{$column} ?? ''))
             ->sort(fn (string $a, string $b) => strcmp($a, $b))
             ->first();
+    }
+
+    /**
+     * Empty this conversation for one participant.
+     *
+     * Both pointers move. Setting only the cleared pointer would leave an
+     * unread badge counting messages the viewer can no longer reach, and no
+     * way to clear it.
+     *
+     * `$hide` is the whole difference between Clear history and Delete chat:
+     * hidden takes the row off the list until somebody writes again. Clearing
+     * without it nulls the marker, so the two can never contradict each other.
+     */
+    public function clearFor(User $user, bool $hide = false): void
+    {
+        $upTo = $this->messages()->max('id');
+
+        $this->participants()->updateExistingPivot($user->id, [
+            'cleared_up_to_message_id' => $upTo,
+            'last_read_message_id' => $upTo,
+            'hidden_at' => $hide ? now() : null,
+        ]);
+
+        $this->unsetRelation('participants');
     }
 
     /**
@@ -144,6 +184,7 @@ class Conversation extends Model
                 'role' => $role->value,
                 'joined_at' => now(),
                 'last_read_message_id' => $from,
+                'last_delivered_message_id' => $from,
                 'cleared_up_to_message_id' => $from,
             ]])->all(),
         );

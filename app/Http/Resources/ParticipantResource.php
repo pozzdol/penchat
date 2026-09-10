@@ -8,8 +8,10 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
 /**
- * Presence is never persisted: `online` is whatever the presence channel last
- * said. Until that channel exists (Phase 2) only the viewer is online.
+ * Presence is never persisted (AGENTS.md § transport routing), so `online`
+ * here is only a starting value: false for everyone but the viewer, who is
+ * plainly reading the page. The `presence-online` channel is the source of
+ * truth and the client overwrites this the moment it connects.
  *
  * `role` is null outside a group — a direct chat has two equals.
  *

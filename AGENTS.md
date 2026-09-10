@@ -42,9 +42,11 @@ bunx <tool>               # not npx
 Only `bun.lock` is committed. If `package-lock.json` or `yarn.lock` ever
 appears, delete it — a second lockfile silently splits the dependency tree.
 
-Composer still manages PHP; Bun does not replace it. The Laravel starter
-kit's `composer run dev` script invokes `npm run dev` by default — patch that
-script to `bun run dev` rather than working around it.
+Composer still manages PHP; Bun does not replace it. `composer run dev` needs
+no patching: Laravel 13 picks the package manager from the lockfile
+(`NodePackageManagers/Bun.php` looks for `bun.lock`, and Bun is tried first),
+so `php artisan dev` already spawns `bun run dev`. Keeping `bun.lock` as the
+only lockfile is what keeps that true.
 
 ---
 
@@ -153,7 +155,8 @@ conversations       id (ULID), type ('direct'|'group'), name?, direct_key? (uniq
                     owner_id? (null on a direct chat, transferable on a group),
                     admins_can_promote, members_can_add
 conversation_user   conversation_id, user_id, role ('admin'|'member'),          # pivot
-                    last_read_message_id?, cleared_up_to_message_id?, joined_at
+                    last_read_message_id?, last_delivered_message_id?,
+                    cleared_up_to_message_id?, hidden_at?, joined_at
 messages            id (ULID), conversation_id, user_id, body?, created_at,
                     edited_at?, deleted_at?
 attachments         id (ULID), message_id, path, original_name, mime, size
@@ -194,13 +197,37 @@ introduce a `message_reads` table - it grows with messages x participants
 and buys nothing at this scale. `cleared_up_to_message_id` is the same shape
 for "hidden from my copy of this conversation".
 
+A pointer expresses exactly one boundary, which is why the ticks need two.
+`last_delivered_message_id` is "it reached their device", the second grey
+tick; `last_read_message_id` is "they opened it", the green one. Both take
+the *lowest* value among the other participants, so a group only advances at
+the pace of whoever is furthest behind. **Delivered must never lag read** -
+you cannot read what never arrived - so everything that advances the read
+pointer advances this one with it.
+
 **4. A direct chat is a group with two participants.**
 Build every feature group-first. A DM is `type = 'direct'` with two pivot
 rows - not a separate model, controller, or channel type. Only *presentation*
 differs (title, and "Read" vs "Read 3/5"). Roles are ignored entirely on a
 direct chat, and every management ability refuses outright there.
 
-**5. `message_user_deletions` is sparse, and must stay that way.**
+**5. `deleted_at` on a message is a tombstone, not a soft delete.**
+The row survives and the thread still shows that something stood there — a
+message vanishing mid-conversation reads as a bug. The *text* does not survive:
+deleting nulls `body`, so "deleted" is not merely a flag the interface honours.
+Never add the `SoftDeletes` trait to `Message`; it would hide the row from every
+query and take the tombstone with it.
+
+**6. `hidden_at` is what separates Clear history from Delete chat.**
+Both move `cleared_up_to_message_id`, so without a second marker they are one
+operation. Hidden takes the row off that participant's list until something
+arrives they have not already dismissed — visibility is *derived* from
+(`hidden_at` set) and (no visible message), never stored. Clearing history nulls
+it, which is what stops the two actions leaving each other in a contradictory
+state. Deleting is not leaving: the pivot row stays, which is how the
+conversation can come back rather than having to be created again.
+
+**7. `message_user_deletions` is sparse, and must stay that way.**
 It exists because "delete for me" is per (message, reader) and cannot live on
 the message row. It earns its place only while rows appear solely where
 somebody actually hid something - unlike a read-receipt table, which would get
@@ -208,29 +235,121 @@ a row per message per reader.
 
 ---
 
+## Data protection
+
+- **`messages.body` and `conversations.name` are encrypted at rest.** Nothing
+  queries either in SQL — search runs client-side — so they may stay opaque to
+  Postgres. Two consequences to keep in mind rather than rediscover:
+  - This hides *what* was said, not *who* said it to whom or *when*.
+    `direct_key` is a unique index over two user ids and must stay searchable,
+    so the social graph survives a leak.
+  - **Losing `APP_KEY` destroys every message, permanently.** It needs a
+    backup somewhere the database backup is not.
+  - Encrypted output is far longer than the plaintext — a ten-character group
+    name becomes 228 characters. Any column that will hold ciphertext is
+    `text`, never `varchar`.
+- **`users.suspended_until` is a timestamp, never a boolean.** There is no
+  app-level administrator here (`ConversationRole` is per-group only), so a
+  permanent flag would have nobody able to lift it. Expiry is the escape
+  hatch. Do not replace it with a flag unless an admin exists first.
+- **A suspension is read-only, not a lockout.** Reading, marking read,
+  delivery acks, clearing, deleting your own copy and leaving all stay open —
+  freezing an ack would stall everyone else's ticks as a side effect of
+  punishing one person.
+- **A strike counts occasions, not rejected requests.** One long paste must
+  never climb the ladder; only hitting the ceiling on separate occasions does.
+  `app/Support/SpamGuard.php` holds every threshold, so they are arguable in
+  one place.
+- **You can only add someone to a group if you already share a conversation
+  with them.** Consent, not punishment: a stranger has to reach you somewhere
+  you can ignore them before they can put you anywhere. Enforced at the HTTP
+  boundary; `Conversation::createGroup()` stays an unguarded primitive so
+  seeders and tests are unaffected.
+
 ## Backend conventions
 
 - Every conversation route authorizes participation via `ConversationPolicy`.
-- `routes/channels.php` must verify pivot membership for `conversation.{id}`
-  and `presence-conversation.{id}`. This is the only thing stopping users
-  from reading other people's chats - never return `true` unconditionally.
-- Broadcast events implement `ShouldBroadcast` with an explicit
-  `broadcastWith()` payload. Never broadcast a whole Eloquent model - it
-  leaks columns and couples the wire format to the schema.
-- Use `broadcast(...)->toOthers()` when the sender already rendered locally.
+- `routes/channels.php` is the security boundary. Never return `true`
+  unconditionally, and **never cast an id**: the scaffolding ships
+  `(int) $user->id === (int) $id`, which is right for auto-increment keys and
+  catastrophic for ULIDs — `(int) '01m24h96...'` is 1, and so is every other
+  ULID, so the check passes for everyone. Compare strings with `===`.
+
+  | Channel | Carries | Authorized by |
+  |---|---|---|
+  | `private-conversation.{id}` | `message.changed`, typing whispers | pivot membership |
+  | `private-user.{id}` | `conversation.touched` | `$user->id === $id` |
+  | `presence-online` | the online roster | any signed-in user |
+
+  There is no `presence-conversation.{id}`: whispers ride the private
+  conversation channel, which verifies the same membership and halves the
+  subscriptions per open chat.
+
+- **Two events, and that is the design.** `MessageSent` carries a full
+  `MessageResource` payload — **new messages only**. `ConversationTouched`
+  carries a conversation id and nothing else, and the client answers it with
+  a partial reload.
+- **Never broadcast an edit or a tombstone as a payload.** A channel payload
+  is identical for every subscriber, but visibility is not:
+  `cleared_up_to_message_id` and `message_user_deletions` are per-viewer, so
+  broadcasting an edit pushes the new text straight past the filter that was
+  hiding it — someone who chose "delete for me" watches the message reappear
+  the moment its author fixes a typo. A *newly created* message cannot be
+  caught by either filter, which is the whole reason that one payload is safe.
+  Everything else takes the round-trip and lets the server decide.
+- `unread_count`, list order, the sidebar preview and `delivery` are all
+  per-viewer, so no single payload could be true for everyone on a channel.
+  The reload is not a shortcut; it is the only honest answer.
+- Both use `ShouldBroadcastNow`. `QUEUE_CONNECTION` is `database` and no worker
+  runs in development, so `ShouldBroadcast` would swallow every broadcast in
+  silence.
+- Give every event a `broadcastAs()`, so the wire format does not depend on a
+  PHP namespace.
+- Never broadcast a whole Eloquent model - it leaks columns and couples the
+  wire format to the schema.
+- Use `broadcast(...)->toOthers()` when the sender already rendered locally,
+  and add `InteractsWithSockets` to the event — without the trait the call is
+  silently inert. The client sends `X-Socket-Id` from Inertia's `before` hook,
+  because Inertia's axios instance is not the one Echo patches.
 - Form Requests for validation. Controllers stay thin.
 - Wrap message-plus-attachment creation in a DB transaction.
 
 ## Frontend conventions
 
 - Inertia pages in `resources/js/pages`, components in `components/`.
+- **Below `md` there is one pane, and two rules follow from it.** The rail is
+  not narrowed on a phone, it is *moved* — `FloatingNav` in `rail.tsx`, shown
+  only over the list, so a conversation gets the whole screen. And row
+  selection is a two-pane idea: every selected style in the conversation list
+  is `md:`-prefixed, because a highlighted row on a phone points at something
+  that is not on screen.
+- **`inRoom` is not `active`.** At `/` the server picks a conversation to fill
+  the third pane; that is not the same as someone opening one. `chat.tsx`
+  reads `usePage().url` to tell them apart. Conflating them makes the list
+  unreachable on mobile and turns Back into a no-op.
+- Menu items are defined once as data and rendered by both the hover dropdown
+  and the right-click `ContextMenu`. Writing the items twice is how the two
+  drift apart. Taking over the browser's context menu also means replacing
+  what it offered — hence `Copy text`.
 - TypeScript. Shared shapes (`Message`, `Conversation`, `Participant`) live in
   `resources/js/types` and must match `broadcastWith()` payloads.
-- Echo subscription lifecycle belongs in a `useEffect` with a cleanup that
-  calls `leaveChannel`. Leaking subscriptions on conversation switch causes
-  duplicate messages - the most common bug in this codebase.
-- De-duplicate by message `id` when appending from a broadcast; a sender may
-  receive its own message through both the HTTP response and the socket.
+- Subscriptions live in `resources/js/hooks/use-realtime.ts` and go through
+  `@laravel/echo-react`'s hooks, which unsubscribe on unmount and on channel
+  change. That is deliberate: leaking a subscription on conversation switch is
+  the duplicate-message bug this codebase is most prone to, and the hooks make
+  it structurally impossible rather than a thing to remember.
+- **Do not install `laravel-echo` alongside `@laravel/echo-react`.** The React
+  package bundles Echo (`deps: 0`); two copies mean two socket connections and
+  every event delivered twice.
+- Merge socket arrivals by `id`, and let the server's copy win — only it knows
+  this viewer's `delivery`. A sender can receive its own message through both
+  the HTTP response and the socket.
+- **A pointer that did not move announces nothing.** Delivery acks are what
+  make this load-bearing rather than tidy: acking moves a pointer, moving a
+  pointer notifies everyone, and everyone acks when notified. The exchange
+  terminates only because a settled pointer is silent.
+- Whispers are `client-` prefixed. Listen for `.client-typing`, not `.typing`;
+  the bare name compiles, connects, and never fires.
 - Debounce typing `whisper` calls (~2-3s) and clear the remote indicator on a
   timeout, not only on an explicit "stopped typing" event.
 
@@ -251,6 +370,9 @@ in production", the most common failure here. Any `VITE_*` change requires
 - `./vendor/bin/pint` applied to touched PHP
 - New broadcast events have a matching channel authorization rule
 - New Echo subscriptions have cleanup
+- New realtime work keeps `tests/Feature/RealtimeContractTest.php` green — it
+  is the tripwire for the failure mode this layer keeps producing: code that
+  compiles, connects, and then silently does nothing
 - All user-facing strings are in English
 - No new dependency added without asking; if added, via `bun add`
 - Nothing committed unless explicitly requested

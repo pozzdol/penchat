@@ -6,21 +6,28 @@ import {
     DialogDescription,
     DialogHeader,
     DialogTitle,
-    DialogTrigger,
 } from '@/components/ui/dialog';
 import { useForm } from '@inertiajs/react';
-import { useState, type FormEvent, type ReactNode } from 'react';
+import { type FormEvent } from 'react';
 
 /**
  * Start a direct chat by handle. There is no friend request: knowing someone's
  * username is the introduction, so a match opens the conversation immediately.
+ *
+ * Controlled rather than self-triggering, because it is opened from a menu item
+ * that cannot also be the dialog's trigger.
  */
-export function NewChatDialog({ trigger }: { trigger: ReactNode }) {
-    const [open, setOpen] = useState(false);
+export function NewChatDialog({
+    open,
+    onOpenChange,
+}: {
+    open: boolean;
+    onOpenChange: (open: boolean) => void;
+}) {
     const form = useForm({ username: '' });
 
     const change = (next: boolean) => {
-        setOpen(next);
+        onOpenChange(next);
         if (!next) {
             form.reset();
             form.clearErrors();
@@ -41,8 +48,6 @@ export function NewChatDialog({ trigger }: { trigger: ReactNode }) {
 
     return (
         <Dialog open={open} onOpenChange={change}>
-            <DialogTrigger asChild>{trigger}</DialogTrigger>
-
             <DialogContent>
                 <DialogHeader>
                     <DialogTitle>New chat</DialogTitle>
