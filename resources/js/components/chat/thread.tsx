@@ -276,13 +276,28 @@ function MessageRow({
                     transition: swipe.offset ? undefined : 'transform 160ms ease-out',
                 }}
             >
-                {/* The avatar column is held open for every message in a run so
-                    the bubbles stay on one axis; only the first row fills it. */}
-                <span className="w-8 shrink-0">
-                    {!mine && endsRun ? (
-                        <PresenceAvatar name={author?.name ?? '?'} src={author?.avatar_url} size="sm" />
-                    ) : null}
-                </span>
+                {/*
+                    Held open for every message in an incoming run so the
+                    bubbles stay on one axis even though only the last of them
+                    carries a face — and rendered for incoming runs *only*.
+                    The row is reversed for your own messages, so a column
+                    reserved there lands against the right edge and can never
+                    be filled: you are never shown your own avatar. It read as
+                    the whole thread being nudged left, because a 40px margin
+                    with something in it is a column and the same margin with
+                    nothing in it is a mistake.
+                */}
+                {mine ? null : (
+                    <span className="w-8 shrink-0">
+                        {endsRun ? (
+                            <PresenceAvatar
+                                name={author?.name ?? '?'}
+                                src={author?.avatar_url}
+                                size="sm"
+                            />
+                        ) : null}
+                    </span>
+                )}
 
                 <div
                     className={cn(
