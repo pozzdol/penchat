@@ -4,7 +4,6 @@ namespace App\Http\Requests\Auth;
 
 use App\Models\User;
 use Illuminate\Foundation\Http\FormRequest;
-use Illuminate\Validation\Rule;
 
 class RegisterNameRequest extends FormRequest
 {
@@ -19,18 +18,17 @@ class RegisterNameRequest extends FormRequest
     /** @return array<string, list<mixed>> */
     public function rules(): array
     {
+        // Shared with the settings form. Nobody is being ignored here: there
+        // is no row yet to collide with.
         return [
-            'name' => ['required', 'string', 'min:2', 'max:60'],
-            'username' => ['required', 'string', 'regex:'.User::USERNAME_REGEX, Rule::unique('users', 'username')],
+            'name' => User::nameRules(),
+            'username' => User::usernameRules(),
         ];
     }
 
     /** @return array<string, string> */
     public function messages(): array
     {
-        return [
-            'username.regex' => 'Use 3 to 20 letters, numbers or underscores, starting with a letter.',
-            'username.unique' => 'That username is taken.',
-        ];
+        return User::identityMessages();
     }
 }

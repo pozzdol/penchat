@@ -130,12 +130,23 @@ git tag -a v0.3.0 -m "feat: add realtime, receipts, encryption and abuse limits"
 ```bash
 composer install && bun install
 php artisan migrate
+php artisan storage:link  # avatars are served off the public disk - see below
 composer run dev          # serve + vite + queue + reverb concurrently
 php artisan test          # Pest
 ./vendor/bin/pint         # PHP formatter - run before finishing PHP work
 bun run build             # production assets
 php artisan push:vapid    # Web Push keys - once, ever; see the push section
 ```
+
+`storage:link` is easy to skip and fails quietly: `public/storage` is
+gitignored, so a fresh checkout has no symlink and every avatar 404s with
+nothing logged anywhere. The directory it points at must also be writable by
+the user PHP runs as — a directory created by a CLI command run as root is not,
+and `Avatar` refuses the upload rather than recording a photo that was never
+written.
+
+`public/build` is gitignored too, so a checkout has no compiled assets until
+`bun run build` or `bun run dev` has run once.
 
 Never run `php artisan reverb:start` or `bun run dev` as a blocking
 foreground command in a tool call - they never exit. Use `composer run dev`

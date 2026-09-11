@@ -9,13 +9,25 @@ interface Destination {
     key: string;
     label: string;
     Icon: ComponentType<{ className?: string }>;
+    /** Where it goes. Absent means the destination does not exist yet. */
+    href?: string;
 }
 
+/**
+ * Defined once and rendered by both the rail and the floating nav, so the two
+ * cannot disagree about what exists.
+ *
+ * A destination with no `href` is rendered disabled and says so. It used to
+ * render as a live button that did nothing: it lit up under a finger, took
+ * focus from the keyboard, and went nowhere — which reads as a broken app
+ * rather than an unbuilt feature, and casts that doubt over the buttons
+ * beside it that do work.
+ */
 const DESTINATIONS: Destination[] = [
     { key: 'calls', label: 'Calls', Icon: Phone },
-    { key: 'chats', label: 'Chats', Icon: MessagesSquare },
+    { key: 'chats', label: 'Chats', Icon: MessagesSquare, href: '/' },
     { key: 'status', label: 'Status', Icon: Camera },
-    { key: 'settings', label: 'Settings', Icon: SlidersHorizontal },
+    { key: 'settings', label: 'Settings', Icon: SlidersHorizontal, href: '/settings' },
 ];
 
 /**
@@ -41,27 +53,34 @@ export function Rail({ active = 'chats', className }: { active?: string; classNa
             </span>
             <span aria-hidden className="my-3 h-px w-6 bg-rail-ink-on/15" />
 
-            {DESTINATIONS.map(({ key, label, Icon }) => {
+            {DESTINATIONS.map(({ key, label, Icon, href }) => {
                 const isActive = key === active;
 
                 return (
                     <Tooltip key={key}>
                         <TooltipTrigger
                             type="button"
+                            disabled={!href}
+                            onClick={href ? () => router.get(href) : undefined}
                             aria-current={isActive ? 'page' : undefined}
                             className={cn(
                                 'grid size-11 place-items-center rounded-lg',
                                 'transition-colors duration-(--dur-micro) ease-out',
                                 'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-info',
+                                'disabled:pointer-events-none disabled:opacity-40',
                                 isActive
                                     ? 'bg-rail-ink-on/12 text-rail-ink-on'
                                     : 'text-rail-ink hover:bg-rail-ink-on/8 hover:text-rail-ink-on active:bg-rail-ink-on/15',
                             )}
                         >
                             <Icon className="size-5" aria-hidden />
-                            <span className="sr-only">{label}</span>
+                            <span className="sr-only">{href ? label : `${label} (coming soon)`}</span>
                         </TooltipTrigger>
-                        <TooltipContent side="right">{label}</TooltipContent>
+                        {/* `disabled` stops the trigger firing its own pointer
+                            events, so the tooltip is hung on the wrapper for
+                            the unbuilt ones — otherwise the explanation is the
+                            one thing you cannot reach. */}
+                        <TooltipContent side="right">{href ? label : `${label} · Coming soon`}</TooltipContent>
                     </Tooltip>
                 );
             })}
@@ -111,28 +130,32 @@ export function FloatingNav({ active = 'chats' }: { active?: string }) {
                 'flex items-center gap-1 rounded-full bg-rail px-2 py-1.5 shadow-soft-lg',
             )}
         >
-            {DESTINATIONS.map(({ key, label, Icon }) => {
+            {DESTINATIONS.map(({ key, label, Icon, href }) => {
                 const isActive = key === active;
 
                 return (
                     <button
                         key={key}
                         type="button"
+                        disabled={!href}
+                        onClick={href ? () => router.get(href) : undefined}
                         aria-current={isActive ? 'page' : undefined}
                         className={cn(
                             /* 44px: the smallest target a thumb reliably hits.
                                There are no tooltips on a touch screen, so the
-                               sr-only label is the only name these have. */
+                               sr-only label is the only name these have — and
+                               the only place an unbuilt destination can say so. */
                             'grid size-11 place-items-center rounded-full',
                             'transition-colors duration-(--dur-micro) ease-out',
                             'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-info',
+                            'disabled:pointer-events-none disabled:opacity-40',
                             isActive
                                 ? 'bg-rail-ink-on/12 text-rail-ink-on'
                                 : 'text-rail-ink active:bg-rail-ink-on/15',
                         )}
                     >
                         <Icon className="size-5" aria-hidden />
-                        <span className="sr-only">{label}</span>
+                        <span className="sr-only">{href ? label : `${label} (coming soon)`}</span>
                     </button>
                 );
             })}

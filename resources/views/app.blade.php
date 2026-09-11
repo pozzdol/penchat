@@ -21,12 +21,48 @@
         <link rel="manifest" href="{{ asset('manifest.webmanifest') }}">
 
         {{--
-            The manifest can only carry one theme colour; this pair follows the
-            palette into dark mode so the browser chrome does not sit at odds
-            with the page under it.
+            One tag, no media query: the pair that used to sit here followed
+            the system and would now contradict a person who chose a theme,
+            leaving a light status bar above a dark page. The script below
+            owns its value, as it owns the class on <html>.
         --}}
-        <meta name="theme-color" content="#f2f3f6" media="(prefers-color-scheme: light)">
-        <meta name="theme-color" content="#1a1c1e" media="(prefers-color-scheme: dark)">
+        <meta name="theme-color" content="#f2f3f6">
+
+        {{--
+            Resolve the theme before the first paint.
+
+            Inline and blocking on purpose. Anything deferred — a module, a
+            React effect — runs after the browser has already painted, and the
+            reader sees the wrong theme flash to the right one on every single
+            load. Fifteen lines in the head is the price of not doing that.
+
+            Three states, resolved here and nowhere else: an explicit choice
+            wins, and "system" falls through to the media query. The result is
+            stamped as a literal class, which is why `tokens.css` needs only
+            `:root` and `.dark` and no second copy of the palette.
+
+            Wrapped in try/catch because reading localStorage *throws* in some
+            contexts rather than returning null — a browser set to block site
+            data, or a thumbnail capture. A theme is not worth a blank page.
+
+            The key is duplicated in `use-theme.ts`; a test asserts the two
+            still agree, because a silent disagreement here reads as "my
+            choice does not stick".
+        --}}
+        <script>
+            (function () {
+                var dark = false;
+                try {
+                    var choice = localStorage.getItem('penchat:theme');
+                    dark = choice === 'dark' || (choice !== 'light' &&
+                        window.matchMedia('(prefers-color-scheme: dark)').matches);
+                } catch (e) { /* Light is the floor. */ }
+
+                document.documentElement.classList.add(dark ? 'dark' : 'light');
+                var tag = document.querySelector('meta[name="theme-color"]');
+                if (tag) tag.setAttribute('content', dark ? '#1a1c1e' : '#f2f3f6');
+            })();
+        </script>
 
         {{-- The standard name, and the one iOS has honoured since long before it. --}}
         <meta name="mobile-web-app-capable" content="yes">

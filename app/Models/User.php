@@ -13,8 +13,9 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 
-#[Fillable(['name', 'username', 'email', 'email_verified_at'])]
+#[Fillable(['name', 'username', 'email', 'email_verified_at', 'avatar_path'])]
 #[Hidden(['password', 'remember_token'])]
 class User extends Authenticatable
 {
@@ -32,6 +33,53 @@ class User extends Authenticatable
     public static function normalizeUsername(mixed $value): string
     {
         return Str::lower(ltrim(trim((string) $value), '@'));
+    }
+
+    /**
+     * The rules for the two fields a person can change about themselves, in
+     * one place because two forms now ask for them: registration, and the
+     * settings page.
+     *
+     * They were only in `RegisterNameRequest` while registration was the sole
+     * way in. A second copy is how the two drift until a name that registers
+     * is refused when edited, or worse the other way round.
+     *
+     * @return list<mixed>
+     */
+    public static function nameRules(): array
+    {
+        return ['required', 'string', 'min:2', 'max:60'];
+    }
+
+    /**
+     * `$ignore` is the id of the person doing the editing: saving a form
+     * without touching your own handle must not fail on the uniqueness of the
+     * handle you already hold.
+     *
+     * @return list<mixed>
+     */
+    public static function usernameRules(?string $ignore = null): array
+    {
+        return [
+            'required',
+            'string',
+            'regex:'.self::USERNAME_REGEX,
+            Rule::unique('users', 'username')->ignore($ignore),
+        ];
+    }
+
+    /**
+     * Said the same way wherever they are said. A regex failure has to
+     * describe the shape rather than show the pattern.
+     *
+     * @return array<string, string>
+     */
+    public static function identityMessages(): array
+    {
+        return [
+            'username.regex' => 'Use 3 to 20 letters, numbers or underscores, starting with a letter.',
+            'username.unique' => 'That username is taken.',
+        ];
     }
 
     /**

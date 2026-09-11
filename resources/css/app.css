@@ -28,43 +28,21 @@
 @source '../../vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php';
 @source '../../storage/framework/views/*.php';
 
-/* No toggle UI ships with this build, so the system preference is the only
-   input. The `.light` escape hatch means a toggle can be added later without
-   touching the palette — set a class on <html> and this rule yields. */
-@media (prefers-color-scheme: dark) {
-    :root:not(.light) {
-        --page: oklch(0.235 0.008 258);
-        --surface: oklch(0.275 0.009 258);
-        --surface-2: oklch(0.3 0.01 258);
-        --line: oklch(0.372 0.011 258);
-        --quote: oklch(0.345 0.011 258);
-        --quote-on-fill: oklch(0.505 0.018 258);
-        --control: oklch(0.56 0.013 258);
+/* The theme is a class on <html>, stamped before first paint by the inline
+   script in `app.blade.php`, and the palette that answers it lives once in
+   `tokens.css` — `:root` is light, `.dark` is dark.
 
-        --ink: oklch(0.845 0.008 258);
-        --ink-soft: oklch(0.742 0.012 258);
-        --ink-mute: oklch(0.672 0.014 258);
-        --ink-ink: oklch(0.235 0.008 258);
+   This used to be a second copy of all 25 dark tokens, under
+   `@media (prefers-color-scheme: dark) :root:not(.light)`, so the system
+   preference worked with no JavaScript. It cost a duplicate of a hand-measured
+   contrast table, and it could only ever express two of the three states a
+   person actually wants: following the system, and forcing light. Forcing dark
+   on a light machine had nowhere to live.
 
-        --fill: oklch(0.435 0.02 258);
-        --fill-ink: oklch(0.958 0.004 258);
-        --fill-ink-soft: oklch(0.86 0.01 258);
-
-        --rail: oklch(0.345 0.014 258);
-        --rail-ink: oklch(0.75 0.012 258);
-        --rail-ink-on: oklch(0.965 0.003 258);
-        --rail-bad: oklch(0.7 0.14 25);
-
-        --ok: oklch(0.66 0.11 152);
-        --info: oklch(0.672 0.105 254);
-        --warn: oklch(0.678 0.105 75);
-        --bad: oklch(0.69 0.14 25);
-
-        --shadow-tint: 258 30% 4%;
-        --scroll-thumb: oklch(0.385 0.012 258);
-        --scroll-thumb-hover: oklch(0.475 0.014 258);
-    }
-}
+   Resolving the preference in that script instead — stored choice, else the
+   media query — leaves the CSS with one definition and all three states. The
+   trade is that with JavaScript off the page is light whatever the system
+   says, which is a defensible floor for an app that is a WebSocket client. */
 
 /* shadcn's semantic layer, wired to the palette above so the primitives inherit
    the system instead of carrying a second one. `--primary` is the slab tone,

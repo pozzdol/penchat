@@ -4,7 +4,9 @@ import { DetailsPanel } from '@/components/chat/details-panel';
 import { FloatingNav, Rail } from '@/components/chat/rail';
 import { Thread, ThreadEmpty } from '@/components/chat/thread';
 import { ThreadHeader } from '@/components/chat/thread-header';
+import { SettingsPane } from '@/components/settings/settings-pane';
 import { TooltipProvider } from '@/components/ui/tooltip';
+import { usePush } from '@/hooks/use-push';
 import { useRealtime } from '@/hooks/use-realtime';
 import { buildThread, conversationTitle } from '@/lib/chat';
 import { cn } from '@/lib/utils';
@@ -36,9 +38,11 @@ interface Unsent {
  */
 export default function Chat({
     current_user,
+    account,
     conversations,
     active_conversation_id,
     messages,
+    settings_open,
 }: ChatPageProps) {
     const [unsent, setUnsent] = useState<Unsent[]>([]);
     const [detailsOpen, setDetailsOpen] = useState(false);
@@ -51,6 +55,18 @@ export default function Chat({
         () => conversations.find((c) => c.id === active_conversation_id) ?? null,
         [conversations, active_conversation_id],
     );
+
+    /* Below md there is one pane, and either of these two fills it. Without
+       the second term, opening Settings on a phone would leave the
+       conversation list on top of it. */
+    const filled = active !== null || settings_open;
+
+    /* Called here rather than inside the settings pane, and that placement is
+       load-bearing: this is what registers the service worker and re-syncs
+       this device's subscription with the server. Mounted only on Settings,
+       it would run for people who never open Settings — which is everyone,
+       most days. */
+    const push = usePush();
 
     /**
      * The newest message in every conversation, as this browser last saw them.
@@ -321,12 +337,20 @@ export default function Chat({
 
     return (
         <TooltipProvider delayDuration={600}>
-            <Head title={active ? conversationTitle(active, current_user.id) : 'Chats'} />
+            <Head
+                title={
+                    settings_open
+                        ? 'Settings'
+                        : active
+                          ? conversationTitle(active, current_user.id)
+                          : 'Chats'
+                }
+            />
 
             <div className="flex h-dvh w-full overflow-hidden bg-page text-ink">
                 {/* A 56px column is a sixth of a phone. Below md the rail is
                     not narrowed, it is moved — see FloatingNav. */}
-                <Rail active="chats" className="max-md:hidden" />
+                <Rail active={settings_open ? 'settings' : 'chats'} className="max-md:hidden" />
 
                 {/* Below md exactly one of these two is mounted-visible: the
                     list, or the thread that replaced it. */}
@@ -335,16 +359,18 @@ export default function Chat({
                     currentUser={current_user}
                     activeId={active_conversation_id}
                     onSelect={select}
-                    className={cn(active && 'max-md:hidden')}
+                    className={cn(filled && 'max-md:hidden')}
                 />
 
                 <main
                     className={cn(
                         'flex min-w-0 flex-1 flex-col bg-page',
-                        !active && 'max-md:hidden',
+                        !filled && 'max-md:hidden',
                     )}
                 >
-                    {liveActive ? (
+                    {settings_open ? (
+                        <SettingsPane currentUser={current_user} account={account} push={push} />
+                    ) : liveActive ? (
                         <>
                             <ThreadHeader
                                 conversation={liveActive}
@@ -382,9 +408,11 @@ export default function Chat({
                     )}
                 </main>
 
-                {/* Only over the list. A conversation gets the whole screen,
-                    which is the point of the change. */}
-                {active ? null : <FloatingNav active="chats" />}
+                {/* Over the list and over Settings, but never over a
+                    conversation — a room gets the whole screen, which is the
+                    point of moving the rail down here. On Settings it is the
+                    only way back on a phone, so it has to stay. */}
+                {active ? null : <FloatingNav active={settings_open ? 'settings' : 'chats'} />}
 
                 {liveActive && detailsOpen ? (
                     <DetailsPanel

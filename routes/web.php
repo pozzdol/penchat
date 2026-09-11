@@ -7,7 +7,10 @@ use App\Http\Controllers\ConversationHistoryController;
 use App\Http\Controllers\ConversationMemberController;
 use App\Http\Controllers\ConversationReadController;
 use App\Http\Controllers\DeliveryController;
+use App\Http\Controllers\EmailChangeController;
 use App\Http\Controllers\MessageController;
+use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\ProfilePhotoController;
 use App\Http\Controllers\PushSubscriptionController;
 use Illuminate\Support\Facades\Route;
 
@@ -58,7 +61,20 @@ Route::middleware('auth')->group(function () {
         Route::post('/conversations/{conversation}/owner/{user}', [ConversationMemberController::class, 'transfer'])
             ->name('conversations.transfer')
             ->can('transferOwnership', 'conversation');
+
+        // Your name sits in every participant's sidebar, so editing it is
+        // putting content in front of other people — which is the one thing
+        // a suspension stops. Reading the page, the theme and signing out
+        // all stay open.
+        Route::patch('/settings/profile', [ProfileController::class, 'update'])
+            ->name('profile.update');
+        Route::post('/settings/photo', [ProfilePhotoController::class, 'update'])
+            ->name('profile.photo.update');
+        Route::delete('/settings/photo', [ProfilePhotoController::class, 'destroy'])
+            ->name('profile.photo.destroy');
     });
+    Route::get('/settings', [ChatController::class, 'settings'])->name('settings');
+
     Route::get('/c/{conversation}', [ChatController::class, 'show'])
         ->name('chat.show')
         ->can('view', 'conversation');
@@ -86,6 +102,19 @@ Route::middleware('auth')->group(function () {
      * suspension is read-only: it stops you putting content in front of other
      * people, and a notification is content arriving *at* you.
      */
+    /*
+     * Changing the address you sign in with. Outside `not-suspended` on
+     * purpose: an email is visible to nobody, so changing it puts nothing in
+     * front of anyone — and it does not lift the suspension, which lives on
+     * the user row.
+     */
+    Route::post('/settings/email', [EmailChangeController::class, 'send'])
+        ->name('email.send');
+    Route::post('/settings/email/confirm', [EmailChangeController::class, 'confirm'])
+        ->name('email.confirm');
+    Route::delete('/settings/email', [EmailChangeController::class, 'cancel'])
+        ->name('email.cancel');
+
     Route::post('/push/subscriptions', [PushSubscriptionController::class, 'store'])
         ->name('push.store');
     Route::delete('/push/subscriptions', [PushSubscriptionController::class, 'destroy'])

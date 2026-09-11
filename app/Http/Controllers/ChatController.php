@@ -31,7 +31,23 @@ class ChatController extends Controller
         return $this->render($request, $conversation);
     }
 
-    private function render(Request $request, ?Conversation $requested): Response
+    /**
+     * Settings is the third pane with something else in it, not a page of its
+     * own.
+     *
+     * A separate Inertia page would have to rebuild the sidebar this method
+     * already assembles — the lazy conversation list, the per-viewer unread
+     * counts, the last-message previews — or go without it and stop being the
+     * Workbench. Rendering the same `chat` component with one more prop costs
+     * four lines and keeps the shell, the mobile one-pane rule and the
+     * realtime subscriptions exactly as they are.
+     */
+    public function settings(Request $request): Response
+    {
+        return $this->render($request, null, settings: true);
+    }
+
+    private function render(Request $request, ?Conversation $requested, bool $settings = false): Response
     {
         /** @var User $user */
         $user = $request->user();
@@ -77,6 +93,21 @@ class ChatController extends Controller
 
         return Inertia::render('chat', [
             'current_user' => new ParticipantResource($user, online: true),
+
+            'settings_open' => $settings,
+
+            /*
+             * Deliberately not on `ParticipantResource`: that resource
+             * describes a participant to everyone who shares a room with
+             * them, and an email address is nobody else's to read. This is
+             * the viewer telling themselves what they already know.
+             */
+            'account' => fn () => [
+                'email' => $user->email,
+                // The server holds the half-finished change, so a reload lands
+                // back on the code step rather than losing it.
+                'pending_email' => EmailChangeController::pendingFor($request),
+            ],
 
             'conversations' => function () use ($load, $last, $user) {
                 $unread = $this->unreadCounts($user);
