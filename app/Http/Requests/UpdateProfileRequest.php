@@ -1,11 +1,16 @@
 <?php
 
-namespace App\Http\Requests\Auth;
+namespace App\Http\Requests;
 
 use App\Models\User;
 use Illuminate\Foundation\Http\FormRequest;
 
-class RegisterNameRequest extends FormRequest
+/**
+ * The two things a person may change about themselves today. Photo and email
+ * are their own problems — an upload and a credential change — and neither
+ * belongs in a form that saves on every keystroke's worth of typing.
+ */
+class UpdateProfileRequest extends FormRequest
 {
     protected function prepareForValidation(): void
     {
@@ -18,11 +23,11 @@ class RegisterNameRequest extends FormRequest
     /** @return array<string, list<mixed>> */
     public function rules(): array
     {
-        // Shared with the settings form. Nobody is being ignored here: there
-        // is no row yet to collide with.
         return [
             'name' => User::nameRules(),
-            'username' => User::usernameRules(),
+            // Ignoring themselves: saving the form without touching the handle
+            // must not trip over the handle they already hold.
+            'username' => User::usernameRules($this->user()->id),
         ];
     }
 

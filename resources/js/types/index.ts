@@ -124,11 +124,29 @@ export interface SharedProps {
     [key: string]: unknown;
 }
 
+/**
+ * The viewer's own account. Separate from `Participant` because an email
+ * address is not something the people you chat with get to read — the
+ * participant shape is what crosses the wire to everyone in a room.
+ */
+export interface Account {
+    email: string;
+    /**
+     * An address waiting on its code, held server-side so a reload lands back
+     * on the confirm step instead of losing it. Null when nothing is in
+     * flight.
+     */
+    pending_email: string | null;
+}
+
 export interface ChatPageProps {
     current_user: Participant;
+    account: Account;
     conversations: Conversation[];
     active_conversation_id: string | null;
     messages: Message[];
+    /** Settings is the third pane with something else in it, not a page. */
+    settings_open: boolean;
     [key: string]: unknown;
 }
 

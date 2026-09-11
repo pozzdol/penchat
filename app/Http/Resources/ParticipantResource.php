@@ -6,6 +6,7 @@ use App\Enums\ConversationRole;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
+use Illuminate\Support\Facades\Storage;
 
 /**
  * Presence is never persisted (AGENTS.md § transport routing), so `online`
@@ -34,7 +35,13 @@ class ParticipantResource extends JsonResource
             'id' => $this->id,
             'name' => $this->name,
             'username' => $this->username,
-            'avatar_url' => null,
+            // Served straight off the `public` disk: an avatar is published
+            // to everyone this person talks to by definition, so routing it
+            // through PHP to check a permission nobody has would buy nothing
+            // and cost a request per face on screen.
+            'avatar_url' => $this->avatar_path
+                ? Storage::disk('public')->url($this->avatar_path)
+                : null,
             'online' => $this->online,
             'role' => $this->role?->value,
         ];

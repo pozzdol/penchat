@@ -14,10 +14,8 @@ import {
     DropdownMenuItem,
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { InstallHint, NotificationBell } from '@/components/chat/notifications';
 import { PresenceAvatar } from '@/components/chat/presence-avatar';
 import { Input } from '@/components/ui/input';
-import { usePush } from '@/hooks/use-push';
 import { conversationTitle, counterpart, listTime } from '@/lib/chat';
 import { cn } from '@/lib/utils';
 import type { Conversation, Message, Participant } from '@/types';
@@ -40,11 +38,6 @@ export function ConversationList({
     className,
 }: Props) {
     const [query, setQuery] = useState('');
-
-    /* Called here, once. The bell and the iOS hint are two faces of the same
-       state, and registering the worker per component would re-upsert this
-       device on every render path that wanted to show either. */
-    const push = usePush();
 
     const matches = useMemo(() => {
         const q = query.trim().toLowerCase();
@@ -78,14 +71,10 @@ export function ConversationList({
                         Chats
                     </h1>
 
-                    <span className="-me-2 flex items-center">
-                        <NotificationBell
-                            state={push.state}
-                            onEnable={push.enable}
-                            onDisable={push.disable}
-                        />
-                        <ComposeMenu />
-                    </span>
+                    {/* The bell used to sit here. It is a per-device
+                        preference, not part of the chat list, and it now lives
+                        with the other two in Settings. */}
+                    <ComposeMenu className="-me-2" />
                 </div>
 
                 <div className="relative mt-4">
@@ -102,8 +91,6 @@ export function ConversationList({
                         className="h-11 rounded-full border-line bg-surface ps-9 shadow-none"
                     />
                 </div>
-
-                <InstallHint state={push.state} className="mt-3" />
             </div>
 
             {matches.length === 0 ? (
