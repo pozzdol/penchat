@@ -6,6 +6,47 @@
 
         <title inertia>{{ config('app.name', 'PenChat') }}</title>
 
+        @php
+            // One card for every share. The app is behind a sign-in, so the
+            // only page a crawler ever reaches is the login screen — there is
+            // no per-page content to vary, and a static image needs no runtime.
+            $shareTitle = 'PenChat';
+            $shareText = 'A small, private chat. Sign in with a code sent to your email.';
+            // `?v=` is the only way to ever change this picture. WhatsApp caches
+            // a preview for weeks and will not re-fetch the same URL, so bump
+            // the number when the image changes or nobody will see the new one.
+            $shareImage = asset('image/og-cover.png').'?v=1';
+        @endphp
+
+        <meta name="description" content="{{ $shareText }}">
+
+        {{--
+            Absolute URLs, and `asset()` gives them because APP_URL is set —
+            WhatsApp discards a relative og:image without a word.
+
+            The width and height are not decoration either: given them,
+            WhatsApp renders the large 1.91:1 card, and without them it falls
+            back to a small square thumbnail cropped from the middle. The
+            artwork is laid out to survive that crop anyway, because the
+            fallback still happens on older clients.
+        --}}
+        <meta property="og:type" content="website">
+        <meta property="og:site_name" content="PenChat">
+        <meta property="og:url" content="{{ config('app.url') }}">
+        <meta property="og:title" content="{{ $shareTitle }}">
+        <meta property="og:description" content="{{ $shareText }}">
+        <meta property="og:image" content="{{ $shareImage }}">
+        <meta property="og:image:type" content="image/png">
+        <meta property="og:image:width" content="1200">
+        <meta property="og:image:height" content="630">
+        <meta property="og:image:alt" content="Two chat bubbles under the PenChat name">
+
+        {{-- Read by X, Telegram, Slack and Discord; three tags for four clients. --}}
+        <meta name="twitter:card" content="summary_large_image">
+        <meta name="twitter:title" content="{{ $shareTitle }}">
+        <meta name="twitter:description" content="{{ $shareText }}">
+        <meta name="twitter:image" content="{{ $shareImage }}">
+
         {{-- The icon lockup carries its own fills, so it needs no theme handling. --}}
         <link rel="icon" href="{{ asset('image/logo/logo-icon.svg') }}" type="image/svg+xml">
 
